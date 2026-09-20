@@ -1,20 +1,24 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { currentUserId } from '@/lib/server-api';
 
-const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:8080';
+import { API_INTERNAL_URL } from '@/lib/server-api';
 
 /**
  * Backend-for-frontend proxy.
  *
- * Client components fetch `/api/bff/<api path>` and this handler forwards it to
- * apps/api, attaching the shared secret and — only if someone is actually
- * signed in — their user id. Both headers are built here from the server-side
- * session, so a browser cannot claim to be another user (or any user), and the
- * api stays unreachable from outside the cluster.
+ * Client components fetch `/bff/<api path>` and this handler forwards it to
+ * apps/api at API_INTERNAL_URL, attaching the shared secret and — only if
+ * someone is actually signed in — their user id. Both headers are built here
+ * from the server-side session, so a browser cannot claim to be another user
+ * (or any user).
+ *
+ * It deliberately does NOT live under /api/: the Gateway routes `/api` to the
+ * api service and only `/api/auth` back to this one, so a proxy under /api
+ * would never be reached. Everything outside /api routes here.
  */
 async function forward(request: NextRequest, path: string[]): Promise<Response> {
   const search = request.nextUrl.search;
-  const target = `${API_BASE_URL}/api/${path.join('/')}${search}`;
+  const target = `${API_INTERNAL_URL}/api/${path.join('/')}${search}`;
 
   const headers: Record<string, string> = { accept: 'application/json' };
   const key = process.env.INTERNAL_API_KEY;

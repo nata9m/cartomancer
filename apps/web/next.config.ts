@@ -6,12 +6,18 @@ const config: NextConfig = {
   output: 'standalone',
   outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
 
-  // Prisma's runtime must stay outside the bundle (it loads a wasm query
-  // compiler by path). @cartomancer/db is deliberately NOT listed: marking a
-  // workspace package external leaves it out of the standalone output
-  // altogether, and the Auth.js Prisma adapter would then fail at the first
-  // OAuth callback — bundling it is what puts the generated client in the image.
-  serverExternalPackages: ['@prisma/client', '@prisma/adapter-pg'],
+  // @prisma/client must stay external: it loads its wasm query compiler by
+  // path. Turbopack emits externals under a content-hashed specifier
+  // (`@prisma/client-<hash>/runtime/client`) and creates the matching alias
+  // symlink in .next/node_modules — which is why the container image has to
+  // ship a materialised copy of that directory; see apps/web/Dockerfile.
+  //
+  // @cartomancer/db and @prisma/adapter-pg are deliberately NOT listed. A
+  // workspace package marked external is left out of the standalone output
+  // altogether, which would break the Auth.js Prisma adapter at the first OAuth
+  // callback; and every additional external is one more alias the image has to
+  // carry, for no gain when the package bundles cleanly.
+  serverExternalPackages: ['@prisma/client'],
 
   // The production filesystem is read-only (readOnlyRootFilesystem: true), so
   // nothing may be written under .next at runtime. Every API read is

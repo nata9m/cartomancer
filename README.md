@@ -25,10 +25,13 @@ pnpm workspaces; Node 22.
 ### How the pieces talk
 
 The browser only ever talks to `apps/web`. Client-side calls go to
-`/api/bff/<path>`, and that route handler forwards them to the api, attaching
-`INTERNAL_API_KEY` and — only when someone is signed in — their user id, both
-read server-side from the Auth.js session. So the api needs no CORS, is never
-exposed publicly, and a browser cannot claim to be a user it isn't.
+`/bff/<path>`, and that route handler forwards them to the api at
+`API_INTERNAL_URL`, attaching `INTERNAL_API_KEY` and — only when someone is
+signed in — their user id, both read server-side from the Auth.js session. So
+the api needs no CORS and a browser cannot claim to be a user it isn't.
+
+The proxy lives at `/bff`, not `/api/bff`, because the Gateway routes `/api` to
+the api service; see the deployment contract below.
 
 `apps/web` touches Postgres directly for exactly one thing: the Auth.js Prisma
 adapter (users and linked accounts). Everything else goes through the api.
@@ -75,10 +78,10 @@ Each app has a commented `.env.example`; the short version:
 **`apps/api`** — `DATABASE_URL`, `PORT` (8080), `HOST` (0.0.0.0),
 `INTERNAL_API_KEY`, optional `CORS_ORIGIN`, `LOG_LEVEL`.
 
-**`apps/web`** — `AUTH_SECRET`, `AUTH_URL`, `AUTH_GOOGLE_ID`,
+**`apps/web`** — `AUTH_SECRET`, `AUTH_URL`, `AUTH_TRUST_HOST`, `AUTH_GOOGLE_ID`,
 `AUTH_GOOGLE_SECRET`, `AUTH_APPLE_ID`, `AUTH_APPLE_TEAM_ID`, `AUTH_APPLE_KEY_ID`,
-`AUTH_APPLE_PRIVATE_KEY`, `API_BASE_URL`, `INTERNAL_API_KEY`, `DATABASE_URL`,
-`PORT` (3000).
+`AUTH_APPLE_PRIVATE_KEY`, `API_INTERNAL_URL`, `INTERNAL_API_KEY`, `DATABASE_URL`,
+`PORT` (3000), `HOSTNAME` (0.0.0.0).
 
 `INTERNAL_API_KEY` must match between the two. Leaving it empty disables the
 check, which is fine locally and never in the cluster — the api logs a warning
@@ -105,21 +108,93 @@ digests.
 ### Running migrations in the cluster
 
 The api image carries the Prisma schema, the migrations and the Prisma CLI, so
-the same image can apply migrations as a Job or initContainer before a rollout:
+the same image applies them as a Job or initContainer before a rollout. The
+exact command, and the rest of what the cluster and the app have agreed on, is
+in **Deployment contract** below.
 
-```bash
-node node_modules/@cartomancer/db/scripts/migrate-deploy.mjs
+## Deployment contract
+
+What the cluster commits to, and how the app meets it. Anything here that
+differs from the manifest side is called out explicitly.
+
+**Migrations.** The api image satisfies the agreed initContainer command
+verbatim, from its default working directory (`/app`):
+
+```sh
+/bin/sh -c "node_modules/.bin/prisma migrate deploy"
 ```
 
-and, for a first-time database, seed the reference data with:
+That `.bin/prisma` is a two-line shim the image installs, because `pnpm deploy`
+produces no `.bin` entries. It execs
+`node_modules/@cartomancer/db/scripts/migrate-deploy.mjs`, which resolves the
+Prisma CLI and runs it from the package that holds `prisma.config.ts`, the
+schema and `migrations/`. Verified against the deployed bundle.
 
-```bash
+First-time seeding of the reference data is a separate, idempotent command:
+
+```sh
 node node_modules/@cartomancer/db/dist/seed.js
 ```
 
-The seed is idempotent (every write is an upsert on a natural key), so re-running
-it is safe and is how updated reference data — the difficulty tiers below, more
-trivia clues — gets applied.
+**Routing.** Every Fastify route is under `/api/` and receives the full,
+unstripped path; none is under `/api/auth/`. Auth.js stays at its default
+basePath. `/healthz` is at the root on both services.
+
+| Path | Service | What it is |
+| --- | --- | --- |
+| `/api/auth/*` | web | Auth.js (default basePath) |
+| `/api/*` | api | quiz sessions, answers, recall, summary |
+| `/bff/*` | web | the BFF proxy — **not** under `/api`, so the Gateway reaches it |
+| `/healthz` | both | probed directly by kubelet, never through the Gateway |
+| `/*` | web | the app |
+
+One deviation worth knowing: the browser never calls `/api/*` itself. Client
+components call `/bff/<path>` on the web origin, and the web container forwards
+that to `API_INTERNAL_URL` in-cluster, which is what keeps the shared secret and
+the user id server-side. The Gateway's `/api` → api route therefore carries no
+browser traffic in normal use; it is still worth keeping for direct debugging,
+and `INTERNAL_API_KEY` is what protects it while it is publicly reachable.
+
+**Server-side rendering** uses `API_INTERNAL_URL` (absolute, in-cluster) for
+every server-side fetch, including inside the `/bff` proxy. Browser-side fetches
+are relative and same-origin. Both paths go through one wrapper
+(`apps/web/src/lib/server-api.ts` and `client-api.ts`).
+
+**Writable paths.** Verified against a container-shaped copy of the build:
+nothing is written outside `/tmp` at runtime. The web app root is `/app`
+exactly, so the `/app/.next/cache` mount lands where Next would look; in
+practice it stays empty, since `isrFlushToDisk` is off and every API read is
+`cache: 'no-store'`. The api writes nothing at all. **No additional mounts are
+needed.**
+
+**Env vars — one addition to the contract's lists.** `INTERNAL_API_KEY` is
+required by **both** containers, and must hold the same value in each. It is not
+in the contract's lists, so flagging it here as agreed. The reason: the Gateway
+routes `/api` to the api from the public hostname, and the api trusts an
+`x-cartomancer-user-id` header to identify the user. Without a shared secret to
+authenticate the caller, anyone could read or write another user's progress by
+sending that header. With it set, the api rejects every caller that is not the
+web container (401), and guest play still works through the proxy. If it is left
+empty the api starts and logs a warning at boot rather than failing — which is
+what local development relies on, and what you do not want in the cluster.
+
+Everything else comes from the contract's lists as given. `HOST` (api) and
+`HOSTNAME` (web) default to `0.0.0.0` in the images, so they need not be set.
+
+**Apple's private key.** `AUTH_APPLE_PRIVATE_KEY` is read with literal `\n`
+sequences converted back to real newlines before the key reaches the ES256
+signer (`apps/web/src/lib/apple.ts`), so the Parameter Store JSON-string form
+works as-is.
+
+**Image notes.** The web image is built with pnpm's hoisted node-linker: Next's
+standalone output copies `node_modules` as it finds them, and pnpm's default
+symlinks point outside the standalone tree, so the image could not resolve
+`next` once the workspace was gone. The image also ships a materialised copy of
+`.next/node_modules` — Turbopack compiles server externals to a content-hashed
+specifier (`@prisma/client-<hash>/runtime/client`) and puts the matching alias
+symlinks there; without it the first render that touches Prisma fails with
+"Cannot find module". Both were found by running the image's exact file layout
+with the build tree deleted.
 
 ## How the mechanics work
 
