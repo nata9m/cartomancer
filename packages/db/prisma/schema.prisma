@@ -69,7 +69,7 @@ model User {
   image         String?
 
   accounts       Account[]
-  authSessions   AuthSession[]
+  authSessions   Session[]
   progress       Progress[]
   createdQuizzes QuizSession[]
   participations SessionParticipant[]
@@ -98,9 +98,11 @@ model Account {
   @@map("accounts")
 }
 
-/// Auth.js adapter table. Unused while the app runs JWT sessions, but present
-/// so switching to database sessions stays a config change.
-model AuthSession {
+/// Auth.js adapter table. Named `Session` because the adapter looks the model
+/// up by that name; the table is `auth_sessions` to keep it clearly apart from
+/// `quiz_sessions`. Unused while the app runs JWT sessions, but present so
+/// switching to database sessions stays a config change.
+model Session {
   sessionToken String   @id @map("session_token")
   userId       String   @map("user_id") @db.Uuid
   expires      DateTime @db.Timestamptz(6)

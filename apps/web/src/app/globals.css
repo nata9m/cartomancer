@@ -1,0 +1,876 @@
+/*
+ * Design tokens, verbatim from the mockups' cartomancer-styles.css, plus the
+ * component classes the eleven screens are built from.
+ *
+ * The mockups wrapped each screen in a 380px .phone-frame so they'd read as
+ * phone screenshots; that frame is a viewing artifact and deliberately absent
+ * here. Instead .app-shell reproduces the mockups' content width and spacing as
+ * the mobile baseline and centres it on wider viewports.
+ */
+
+:root {
+  --surface-0: #f7f7f5;
+  --surface-1: #f0f0ee;
+  --surface-2: #ffffff;
+  --surface-3: #fafafa;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b6b68;
+  --text-muted: #9c9c98;
+  --text-accent: #185fa5;
+  --bg-accent: #e6f1fb;
+  --border: #e5e5e3;
+  --border-strong: #c7c7c3;
+  --border-accent: #378add;
+  --text-success: #3b6d11;
+  --bg-success: #eaf3de;
+  --border-success: #639922;
+  --text-danger: #a32d2d;
+  --bg-danger: #fcebeb;
+  --border-danger: #e24b4a;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-0: #17171a;
+    --surface-1: #1f1f22;
+    --surface-2: #26262a;
+    --surface-3: #2c2c30;
+    --text-primary: #f0f0ee;
+    --text-secondary: #b4b2a9;
+    --text-muted: #888780;
+    --text-accent: #85b7eb;
+    --bg-accent: #0c447c;
+    --border: #3a3a3e;
+    --border-strong: #4c4c50;
+    --border-accent: #378add;
+    --text-success: #97c459;
+    --bg-success: #27500a;
+    --border-success: #639922;
+    --text-danger: #f09595;
+    --bg-danger: #791f1f;
+    --border-danger: #e24b4a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-0);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+select,
+input[type='text'] {
+  height: 36px;
+  border-radius: var(--radius);
+  border: 0.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  padding: 0 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+button {
+  height: 40px;
+  border-radius: var(--radius);
+  border: 0.5px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--surface-1);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+
+.app-shell {
+  width: 100%;
+  max-width: 412px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 100dvh;
+}
+
+.app-shell--centered {
+  justify-content: center;
+  gap: 14px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stack--tight {
+  gap: 6px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* ── Home header ────────────────────────────────────────────────────────── */
+
+.app-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+}
+
+.tagline {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.screen-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.screen-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.icon-button {
+  height: 32px;
+  width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  flex: none;
+}
+
+/* ── Streak bar ─────────────────────────────────────────────────────────── */
+
+.streak-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-1);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.streak-flame {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-accent);
+  white-space: nowrap;
+}
+
+.streak-days {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.day-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.day-dot--filled {
+  background: var(--border-accent);
+}
+
+/* ── Stats strip ────────────────────────────────────────────────────────── */
+
+.stats-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: var(--surface-1);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.stat {
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.stat + .stat {
+  border-left: 0.5px solid var(--border);
+}
+
+.stat-value {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stat-label {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+/* ── Sign-in banner (guest home) ────────────────────────────────────────── */
+
+.signin-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  background: var(--bg-accent);
+  border: 0.5px solid var(--border-accent);
+  border-radius: var(--radius);
+  color: var(--text-accent);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.signin-banner a {
+  margin-left: auto;
+  font-weight: 600;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+/* ── Filter chips ───────────────────────────────────────────────────────── */
+
+.filter-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.filter-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  border: 0.5px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.chip--active {
+  border-color: var(--border-accent);
+  background: var(--bg-accent);
+  color: var(--text-accent);
+}
+
+.chip select {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  opacity: 0;
+  border: none;
+  cursor: pointer;
+}
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+
+.group-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: auto;
+  padding: 13px 12px;
+  text-align: left;
+  background: var(--surface-2);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.card:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+.card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: var(--radius);
+  background: var(--bg-accent);
+  color: var(--text-accent);
+}
+
+.card-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-title {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 550;
+}
+
+.card-description {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.card-chevron {
+  margin-left: auto;
+  color: var(--text-muted);
+  flex: none;
+}
+
+/* ── Quiz header ────────────────────────────────────────────────────────── */
+
+.quiz-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress-track {
+  flex: 1;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--border-accent);
+  transition: width 160ms ease-out;
+}
+
+.progress-counter {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Prompts ────────────────────────────────────────────────────────────── */
+
+.prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 0 6px;
+  text-align: center;
+}
+
+.prompt-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.prompt-text {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 620;
+  letter-spacing: -0.5px;
+  line-height: 1.15;
+}
+
+.prompt-flag {
+  width: 200px;
+  max-width: 78%;
+  aspect-ratio: 4 / 3;
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.clue-card {
+  display: flex;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface-1);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.clue-card .clue-icon {
+  color: var(--text-accent);
+  flex: none;
+}
+
+/* ── Answers ────────────────────────────────────────────────────────────── */
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  padding: 11px 12px;
+  text-align: left;
+  background: var(--surface-2);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+.option--flag {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+}
+
+.option-flag-box {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.option-caption {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.option-mark {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+}
+
+.option--correct {
+  background: var(--bg-success);
+  border-color: var(--border-success);
+  color: var(--text-success);
+}
+
+.option--correct .option-caption,
+.option--wrong .option-caption {
+  color: inherit;
+}
+
+.option--wrong {
+  background: var(--bg-danger);
+  border-color: var(--border-danger);
+  color: var(--text-danger);
+}
+
+.option--correct:hover,
+.option--wrong:hover {
+  background: var(--bg-success);
+}
+
+.option--wrong:hover {
+  background: var(--bg-danger);
+}
+
+.answer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.answer-input {
+  width: 100%;
+  height: 42px;
+  text-align: center;
+  font-size: 16px;
+}
+
+.answer-input:focus {
+  outline: none;
+  border-color: var(--border-accent);
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: 0.5px solid var(--border);
+  font-size: 13.5px;
+  text-align: center;
+}
+
+.result-row--correct {
+  background: var(--bg-success);
+  border-color: var(--border-success);
+  color: var(--text-success);
+}
+
+.result-row--wrong {
+  background: var(--bg-danger);
+  border-color: var(--border-danger);
+  color: var(--text-danger);
+}
+
+.inline-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  min-height: 16px;
+}
+
+.inline-note--error {
+  color: var(--text-danger);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.button-primary {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--surface-2);
+  font-weight: 550;
+}
+
+.button-primary:hover {
+  background: var(--text-primary);
+  opacity: 0.9;
+}
+
+.button-secondary {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.link-underline {
+  font-size: 13px;
+  text-decoration: underline;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  height: auto;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* ── Login ──────────────────────────────────────────────────────────────── */
+
+.app-mark {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--bg-accent);
+  color: var(--text-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+}
+
+.centered {
+  text-align: center;
+}
+
+.provider-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.small-muted {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ── Recall ─────────────────────────────────────────────────────────────── */
+
+.recall-counter {
+  text-align: center;
+  padding: 18px 0 4px;
+}
+
+.recall-count {
+  font-size: 44px;
+  font-weight: 640;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+
+.recall-total {
+  font-size: 18px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.recall-caption {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 0.5px solid var(--border);
+  background: var(--surface-2);
+}
+
+.pill--success {
+  background: var(--bg-success);
+  border-color: var(--border-success);
+  color: var(--text-success);
+}
+
+.pill--danger {
+  background: var(--bg-danger);
+  border-color: var(--border-danger);
+  color: var(--text-danger);
+}
+
+.pill--more {
+  background: var(--surface-1);
+  color: var(--text-secondary);
+}
+
+/* ── Results ────────────────────────────────────────────────────────────── */
+
+.results-head {
+  text-align: center;
+  padding: 14px 0 2px;
+}
+
+.results-kind {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.results-score {
+  margin-top: 6px;
+  font-size: 40px;
+  font-weight: 640;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+
+.results-caption {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: 0.5px solid var(--border-accent);
+  background: var(--bg-accent);
+  color: var(--text-accent);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.callout--success {
+  border-color: var(--border-success);
+  background: var(--bg-success);
+  color: var(--text-success);
+}
+
+.callout-icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.missed-list {
+  display: flex;
+  flex-direction: column;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.missed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+}
+
+.missed-row + .missed-row {
+  border-top: 0.5px solid var(--border);
+}
+
+.missed-answer {
+  margin-left: auto;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.footer-note {
+  margin-top: auto;
+  padding-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Flags (flag-icons) ─────────────────────────────────────────────────── */
+
+.flag-fill {
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* contain, not cover: flag aspect ratios run from 1:2 (Canada) to 1:1
+     (Switzerland), and cropping a flag to fill a 4:3 tile would cut off the
+     very details being tested. */
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.flag-inline {
+  width: 18px;
+  height: 13.5px;
+  border-radius: 2px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  display: inline-block;
+  flex: none;
+}
+
+/* ── Misc ───────────────────────────────────────────────────────────────── */
+
+.loading-note {
+  padding: 40px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.error-note {
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 0.5px solid var(--border-danger);
+  background: var(--bg-danger);
+  color: var(--text-danger);
+  font-size: 13px;
+}
+
+@media (min-width: 640px) {
+  .app-shell {
+    max-width: 440px;
+    padding-top: 32px;
+  }
+}

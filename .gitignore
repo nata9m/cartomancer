@@ -12,3 +12,7 @@ coverage/
 .DS_Store
 *.log
 .pnpm-store/
+
+# Next.js build/runtime
+.next/
+next-env.d.ts

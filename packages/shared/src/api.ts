@@ -89,6 +89,9 @@ export interface MissedQuestion {
 export interface SessionResults {
   sessionId: string;
   quizType: QuizTypeSummary;
+  /** Echoed so the results screen's "Play again" can reuse them. */
+  regionFilter: RegionFilter;
+  difficultyFilter: DifficultyFilter;
   score: number;
   total: number;
   percentCorrect: number;

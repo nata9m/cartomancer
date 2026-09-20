@@ -84,6 +84,33 @@ export async function registerRecallRoutes(app: FastifyInstance): Promise<void> 
     return reply.code(201).send(payload);
   });
 
+  /** Rehydrates a recall round in progress (a refresh, or a direct link). */
+  app.get('/api/recall/:id', async (request) => {
+    const { userId } = request.actor;
+    if (userId === null) {
+      throw forbidden('Guest recall rounds are not persisted');
+    }
+    const { id } = request.params as { id: string };
+    const session = await loadOwnedRecallSession(app.prisma, id, userId);
+    const answers = await app.prisma.sessionAnswer.findMany({
+      where: { sessionId: session.id, userId, wasCorrect: true },
+      include: { country: true },
+      orderBy: { answeredAt: 'asc' },
+    });
+    const payload: RecallSession & { recalled: { id: number; name: string; isoCode: string }[] } = {
+      id: session.id,
+      region: (session.regionFilter ?? ALL_FILTER) as RegionFilter,
+      totalInRegion: session.questionCount,
+      isGuest: false,
+      recalled: answers.map((answer) => ({
+        id: answer.country.id,
+        name: answer.country.name,
+        isoCode: answer.country.isoCode,
+      })),
+    };
+    return payload;
+  });
+
   /**
    * One recall guess. A correct, novel guess is recorded and marks the country
    * learned outright — recall's threshold is a single successful recall, not

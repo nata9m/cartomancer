@@ -430,6 +430,8 @@ async function buildResults(
   return {
     sessionId,
     quizType: summarize(definition),
+    regionFilter: (session.regionFilter ?? ALL_FILTER) as SessionResults['regionFilter'],
+    difficultyFilter: (session.difficultyFilter ?? ALL_FILTER) as SessionResults['difficultyFilter'],
     score,
     total,
     percentCorrect: total === 0 ? 0 : Math.round((score / total) * 100),
