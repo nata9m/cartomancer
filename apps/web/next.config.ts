@@ -6,8 +6,12 @@ const config: NextConfig = {
   output: 'standalone',
   outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
 
-  // Prisma's client and engine must stay outside the bundle.
-  serverExternalPackages: ['@prisma/client', '@prisma/adapter-pg', '@cartomancer/db'],
+  // Prisma's runtime must stay outside the bundle (it loads a wasm query
+  // compiler by path). @cartomancer/db is deliberately NOT listed: marking a
+  // workspace package external leaves it out of the standalone output
+  // altogether, and the Auth.js Prisma adapter would then fail at the first
+  // OAuth callback — bundling it is what puts the generated client in the image.
+  serverExternalPackages: ['@prisma/client', '@prisma/adapter-pg'],
 
   // The production filesystem is read-only (readOnlyRootFilesystem: true), so
   // nothing may be written under .next at runtime. Every API read is

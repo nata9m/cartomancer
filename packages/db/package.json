@@ -16,7 +16,7 @@
     "build": "prisma generate && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "migrate:dev": "prisma migrate dev",
-    "migrate:deploy": "prisma migrate deploy",
+    "migrate:deploy": "node scripts/migrate-deploy.mjs",
     "migrate:reset": "prisma migrate reset",
     "studio": "prisma studio",
     "seed": "tsx src/seed.ts",
@@ -26,11 +26,11 @@
   "dependencies": {
     "@cartomancer/shared": "workspace:*",
     "@prisma/adapter-pg": "^7.10.0",
-    "@prisma/client": "7.10.0"
+    "@prisma/client": "7.10.0",
+    "dotenv": "^18.0.1",
+    "prisma": "7.10.0"
   },
   "devDependencies": {
-    "dotenv": "^18.0.1",
-    "prisma": "7.10.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }

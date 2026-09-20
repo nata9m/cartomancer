@@ -1,0 +1,110 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  verify:
+    name: build and test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cartomancer
+          POSTGRES_PASSWORD: cartomancer
+          POSTGRES_DB: cartomancer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cartomancer -d cartomancer"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://cartomancer:cartomancer@localhost:5432/cartomancer?schema=public
+      AUTH_SECRET: ci-only-secret-not-used-for-anything-real
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Before the seed: it imports the shared package's build output.
+      - name: Build every package
+        run: pnpm -r build
+
+      - name: Typecheck
+        run: pnpm -r --if-present typecheck
+
+      - name: Apply migrations
+        run: pnpm --filter @cartomancer/db migrate:deploy
+
+      - name: Seed reference data
+        run: pnpm --filter @cartomancer/db seed
+
+      - name: API tests
+        run: pnpm --filter @cartomancer/api test
+
+      - name: Check SQL and TypeScript answer normalisation agree
+        run: pnpm --filter @cartomancer/db verify:matching
+
+  images:
+    name: push ${{ matrix.app }} image
+    needs: verify
+    # Images are only published from main; pull requests just build and test.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [web, api]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/cartomancer-${{ matrix.app }}
+          # Short git SHA only (e.g. :abc1234). The consuming Flux repo pins by
+          # digest and Renovate tracks new digests, so no :latest is needed.
+          tags: |
+            type=sha,prefix=,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
