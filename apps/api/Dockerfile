@@ -14,7 +14,9 @@ WORKDIR /repo
 
 FROM base AS build
 # Manifests first: this layer only busts when a dependency changes.
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+# tsconfig.base.json is not optional: packages/*/tsconfig.json extend it, and
+# `prisma generate` reads the db package's tsconfig to emit its client.
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc tsconfig.base.json ./
 # Every workspace manifest, not just this app's: --frozen-lockfile compares the
 # lockfile against the whole workspace, so a missing manifest fails the install.
 COPY packages/shared/package.json packages/shared/

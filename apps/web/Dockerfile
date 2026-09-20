@@ -24,7 +24,9 @@ ENV NPM_CONFIG_NODE_LINKER=hoisted
 
 # Every workspace manifest, not just this app's: --frozen-lockfile compares the
 # lockfile against the whole workspace, so a missing manifest fails the install.
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+# tsconfig.base.json is not optional: packages/*/tsconfig.json extend it, and
+# `prisma generate` reads the db package's tsconfig to emit its client.
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
 COPY apps/api/package.json apps/api/
