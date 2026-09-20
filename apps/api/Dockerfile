@@ -43,6 +43,16 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --from=build --chown=1000:1000 /out ./
 
+# Deployment contract: the cluster applies migrations from an initContainer with
+#   /bin/sh -c "node_modules/.bin/prisma migrate deploy"
+# `pnpm deploy` ships no .bin shims, so provide one. It delegates to the
+# migration runner, which resolves the Prisma CLI entry point and runs it from
+# the package holding prisma.config.ts, the schema and the migrations.
+RUN mkdir -p /app/node_modules/.bin \
+ && printf '#!/bin/sh\nexec node /app/node_modules/@cartomancer/db/scripts/migrate-deploy.mjs "$@"\n' \
+      > /app/node_modules/.bin/prisma \
+ && chmod 0755 /app/node_modules/.bin/prisma
+
 # Numeric, so Kubernetes can verify runAsNonRoot without resolving a username.
 USER 1000:1000
 EXPOSE 8080

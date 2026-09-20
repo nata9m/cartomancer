@@ -3,20 +3,28 @@
 # Build context is the repository root:
 #   docker build -f apps/web/Dockerfile -t cartomancer-web .
 #
-# Runs as uid/gid 1000 with nothing writable outside /tmp, matching the
-# cluster's PodSecurityContext (runAsNonRoot, runAsUser/Group 1000,
-# readOnlyRootFilesystem).
+# Runs as uid/gid 1000 from /app, per the deployment contract: the only writable
+# paths in production are /tmp and /app/.next/cache, so the app root has to be
+# /app exactly (Next's standalone output nests it under apps/web by default —
+# the runtime stage flattens that).
 
 FROM node:22-alpine AS base
-ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH \
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
     NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
 WORKDIR /repo
 
 FROM base AS build
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+# Next's standalone output copies node_modules exactly as it finds them. Under
+# pnpm's default symlinked layout those links point out of the standalone tree
+# and into the workspace store, so the copied output cannot resolve `next` once
+# the workspace is gone. A hoisted install makes them real directories.
+ENV NPM_CONFIG_NODE_LINKER=hoisted
+
 # Every workspace manifest, not just this app's: --frozen-lockfile compares the
 # lockfile against the whole workspace, so a missing manifest fails the install.
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
 COPY apps/api/package.json apps/api/
@@ -32,6 +40,13 @@ RUN pnpm --filter @cartomancer/db generate \
  && pnpm --filter @cartomancer/db build \
  && pnpm --filter @cartomancer/web build
 
+# Turbopack compiles server externals (@prisma/client) to a content-hashed
+# specifier such as `@prisma/client-2c3a283f.../runtime/client`, and writes the
+# matching alias symlinks into .next/node_modules. Without them the first render
+# that touches Prisma dies with "Cannot find module". COPY does not follow
+# symlinks, so materialise them here.
+RUN cp -rLT apps/web/.next/node_modules /externals
+
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -39,21 +54,18 @@ ENV NODE_ENV=production \
     PORT=3000
 WORKDIR /app
 
-# `output: "standalone"` ships its own minimal node_modules; static assets and
-# public/ are not traced into it and have to be copied alongside.
-COPY --from=build --chown=1000:1000 /repo/apps/web/.next/standalone ./
-COPY --from=build --chown=1000:1000 /repo/apps/web/.next/static ./apps/web/.next/static
-COPY --from=build --chown=1000:1000 /repo/apps/web/public ./apps/web/public
-
-# The root filesystem is read-only in production. Next.js is configured not to
-# flush ISR to disk and every API read is `cache: 'no-store'`, so nothing should
-# want this directory — but if some future code path does, it lands in /tmp
-# (writable) instead of failing on a read-only mount.
-RUN mkdir -p /app/apps/web/.next \
- && ln -s /tmp/next-cache /app/apps/web/.next/cache \
- && chown -h 1000:1000 /app/apps/web/.next/cache
+# Flattened standalone output: server.js and .next land directly in /app.
+COPY --from=build --chown=1000:1000 /repo/apps/web/.next/standalone/apps/web ./
+COPY --from=build --chown=1000:1000 /repo/apps/web/.next/standalone/node_modules ./node_modules
+# Neither static assets nor public/ are traced into the standalone output.
+COPY --from=build --chown=1000:1000 /repo/apps/web/.next/static ./.next/static
+COPY --from=build --chown=1000:1000 /repo/apps/web/public ./public
+COPY --from=build --chown=1000:1000 /externals ./.next/node_modules
 
 USER 1000:1000
 EXPOSE 3000
 
-CMD ["node", "apps/web/server.js"]
+# Nothing writes to disk at runtime: every API read is `cache: 'no-store'` and
+# the ISR flush is disabled in next.config.ts. /app/.next/cache is mounted by
+# the cluster anyway, and is the only path Next would ever reach for.
+CMD ["node", "server.js"]

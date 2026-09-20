@@ -1,7 +1,12 @@
 import 'server-only';
 import { auth } from '@/auth';
 
-const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:8080';
+/**
+ * In-cluster address of apps/api, as the deployment contract names it. Every
+ * server-side call (SSR and the BFF proxy) goes here; the browser never has an
+ * origin to be relative to during SSR, so this must be absolute.
+ */
+export const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? 'http://localhost:8080';
 
 export class ApiError extends Error {
   constructor(
@@ -16,7 +21,7 @@ export class ApiError extends Error {
 /**
  * Server-side call into apps/api.
  *
- * The browser never reaches the api directly: this helper (and the /api/bff
+ * The browser never reaches the api directly: this helper (and the /bff
  * proxy that wraps it for client components) is the only path, which is what
  * keeps INTERNAL_API_KEY server-side and makes the user id unforgeable — it is
  * read from the Auth.js session here, never from a request header.
@@ -37,7 +42,7 @@ export async function apiFetch<T>(
     headers['content-type'] = 'application/json';
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${API_INTERNAL_URL}${path}`, {
     method: options.method ?? 'GET',
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),

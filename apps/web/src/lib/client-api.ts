@@ -11,13 +11,16 @@ import type {
 } from '@cartomancer/shared';
 
 /**
- * Every client-side call goes through the BFF proxy, which attaches the shared
- * secret and the signed-in user's id server-side. Nothing here knows whether the
- * caller is a guest — that is decided by the presence of an Auth.js session when
- * the proxy forwards the request.
+ * Every client-side call goes through the BFF proxy at /bff, which attaches the
+ * shared secret and the signed-in user's id server-side. Nothing here knows
+ * whether the caller is a guest — that is decided by the presence of an Auth.js
+ * session when the proxy forwards the request.
+ *
+ * /bff rather than /api/bff because the Gateway routes /api to the api service;
+ * only /api/auth (Auth.js, at its default basePath) comes back to this app.
  */
 async function bff<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
-  const response = await fetch(`/api/bff/${path}`, {
+  const response = await fetch(`/bff/${path}`, {
     method: init?.method ?? 'GET',
     headers: init?.body === undefined ? undefined : { 'content-type': 'application/json' },
     body: init?.body === undefined ? undefined : JSON.stringify(init.body),
