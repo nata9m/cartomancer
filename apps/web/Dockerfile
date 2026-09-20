@@ -44,10 +44,13 @@ RUN pnpm --filter @cartomancer/db generate \
 
 # Turbopack compiles server externals (@prisma/client) to a content-hashed
 # specifier such as `@prisma/client-2c3a283f.../runtime/client`, and writes the
-# matching alias symlinks into .next/node_modules. Without them the first render
-# that touches Prisma dies with "Cannot find module". COPY does not follow
-# symlinks, so materialise them here.
-RUN cp -rLT apps/web/.next/node_modules /externals
+# matching alias symlinks into .next/node_modules — which the standalone output
+# copies as symlinks into the store, dangling once the workspace is gone. So the
+# first render that touches Prisma dies with "Cannot find module". Replace them
+# with the real packages here, where the targets still resolve, since COPY
+# neither follows symlinks nor overwrites one with a directory.
+RUN rm -rf apps/web/.next/standalone/apps/web/.next/node_modules \
+ && cp -rLT apps/web/.next/node_modules apps/web/.next/standalone/apps/web/.next/node_modules
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production \
@@ -62,7 +65,6 @@ COPY --from=build --chown=1000:1000 /repo/apps/web/.next/standalone/node_modules
 # Neither static assets nor public/ are traced into the standalone output.
 COPY --from=build --chown=1000:1000 /repo/apps/web/.next/static ./.next/static
 COPY --from=build --chown=1000:1000 /repo/apps/web/public ./public
-COPY --from=build --chown=1000:1000 /externals ./.next/node_modules
 
 USER 1000:1000
 EXPOSE 3000
