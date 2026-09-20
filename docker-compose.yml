@@ -1,0 +1,23 @@
+# Local development only. The cluster's Postgres is provisioned elsewhere
+# (see the home-ops repo); this is just a matching local instance.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cartomancer-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cartomancer
+      POSTGRES_PASSWORD: cartomancer
+      POSTGRES_DB: cartomancer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cartomancer -d cartomancer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

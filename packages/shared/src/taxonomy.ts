@@ -197,11 +197,21 @@ export function learnedThresholdFor(quizTypeKey: string): number {
 }
 
 /**
- * pg_trgm similarity floor for fuzzy answer matching. Exact (case-insensitive)
- * matches against the canonical name/capital or a hand-seeded alias are tried
- * first; this only governs the typo fallback. 0.45 sits in the middle of the
- * 0.4–0.5 band the brief calls for: it forgives a transposed or missing letter
- * in a medium-length name without letting "Niger" match "Nigeria".
+ * pg_trgm similarity floor for fuzzy answer matching, in the middle of the
+ * 0.4–0.5 band: it forgives a transposed, doubled or missing letter in a
+ * medium-length name ("Swizerland" 0.64, "Netherland" 0.77, "Germeny" 0.45)
+ * while rejecting a guess that is merely in the right family ("Kirgizstan" for
+ * Kyrgyzstan, 0.29).
+ *
+ * The threshold alone does NOT keep near-twin countries apart — similarity
+ * ("Niger", "Nigeria") is 0.56 — so the API pairs it with two rules:
+ *   1. an exact (normalised) match on any country's name or alias wins
+ *      outright, and if it names a different country the answer is simply
+ *      wrong; it never falls through to the fuzzy pass
+ *   2. a fuzzy match counts only when the expected country is the single best
+ *      trigram match in the table
+ * Re-tune with `pnpm --filter @cartomancer/db verify:matching`, which prints
+ * the ranked candidates for a set of probe guesses.
  */
 export const FUZZY_MATCH_THRESHOLD = 0.45;
 

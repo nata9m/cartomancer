@@ -1,0 +1,224 @@
+// Cartomancer data model.
+//
+// This is a faithful translation of the SQL in the product spec. Deviations are
+// limited to Prisma idioms and additive constraints/indexes, each noted inline:
+//   * natural-key uniques so the seed can upsert (countries.iso_code,
+//     quiz_types.key, country_facts(country_id, fact))
+//   * filter indexes on countries(region, difficulty) and rotation indexes on
+//     progress(last_answered_at)
+//   * the Auth.js (NextAuth v5) adapter tables — Account / AuthSession /
+//     VerificationToken — plus the two extra columns its User type requires
+//     (email_verified, image). Nothing in the quiz logic reads them.
+//
+// pg_trgm, the immutable normalisation function and the trigram/GIN indexes
+// used for fuzzy answer matching live in migration 0002 (Prisma has no schema
+// syntax for extensions' function-based indexes).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Country {
+  id         Int      @id @default(autoincrement())
+  name       String
+  capital    String
+  region     String
+  difficulty String
+  isoCode    String   @unique @map("iso_code") @db.Char(2)
+  aliases    String[] @default([])
+
+  facts            CountryFact[]
+  progress         Progress[]
+  sessionQuestions SessionQuestion[]
+  sessionAnswers   SessionAnswer[]
+
+  @@index([region])
+  @@index([difficulty])
+  @@map("countries")
+}
+
+/// Trivia clues. A country may have many; one is picked per trivia question.
+model CountryFact {
+  id        Int      @id @default(autoincrement())
+  countryId Int      @map("country_id")
+  fact      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@unique([countryId, fact])
+  @@map("country_facts")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique
+  name         String?
+  /// 'google' | 'apple'. Written by the Auth.js linkAccount event, hence the
+  /// default: the adapter's createUser call doesn't know the provider yet.
+  authProvider String    @default("pending") @map("auth_provider")
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Auth.js User fields.
+  emailVerified DateTime? @map("email_verified") @db.Timestamptz(6)
+  image         String?
+
+  accounts       Account[]
+  authSessions   AuthSession[]
+  progress       Progress[]
+  createdQuizzes QuizSession[]
+  participations SessionParticipant[]
+  answers        SessionAnswer[]
+
+  @@map("users")
+}
+
+/// Auth.js adapter table: one row per linked OAuth account.
+model Account {
+  userId            String  @map("user_id") @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @map("refresh_token")
+  access_token      String? @map("access_token")
+  expires_at        Int?    @map("expires_at")
+  token_type        String? @map("token_type")
+  scope             String?
+  id_token          String? @map("id_token")
+  session_state     String? @map("session_state")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+  @@map("accounts")
+}
+
+/// Auth.js adapter table. Unused while the app runs JWT sessions, but present
+/// so switching to database sessions stays a config change.
+model AuthSession {
+  sessionToken String   @id @map("session_token")
+  userId       String   @map("user_id") @db.Uuid
+  expires      DateTime @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("auth_sessions")
+}
+
+/// Auth.js adapter table (email flows; unused by Google/Apple but required).
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime @db.Timestamptz(6)
+
+  @@id([identifier, token])
+  @@map("verification_tokens")
+}
+
+model QuizType {
+  id          Int     @id @default(autoincrement())
+  key         String  @unique
+  category    String
+  displayName String  @map("display_name")
+  format      String
+  isActive    Boolean @default(true) @map("is_active")
+
+  progress Progress[]
+  sessions QuizSession[]
+
+  @@map("quiz_types")
+}
+
+/// Per (user, country, quiz type) learning state. `isLearned` is always
+/// `currentStreak >= threshold`, recomputed on every write so it cannot drift.
+model Progress {
+  userId         String    @map("user_id") @db.Uuid
+  countryId      Int       @map("country_id")
+  quizTypeId     Int       @map("quiz_type_id")
+  currentStreak  Int       @default(0) @map("current_streak")
+  isLearned      Boolean   @default(false) @map("is_learned")
+  lastAnsweredAt DateTime? @map("last_answered_at") @db.Timestamptz(6)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  country  Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  quizType QuizType @relation(fields: [quizTypeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, countryId, quizTypeId])
+  // Supports the shared rotation pool: eligible countries ordered by
+  // last_answered_at ASC NULLS FIRST within one (user, quiz type).
+  @@index([userId, quizTypeId, lastAnsweredAt])
+  @@index([userId, quizTypeId, isLearned])
+  @@map("progress")
+}
+
+/// Participant-aware from day one: a solo quiz is a session with one
+/// participant, a future head-to-head match is the same row with two.
+model QuizSession {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quizTypeId        Int       @map("quiz_type_id")
+  regionFilter      String?   @map("region_filter")
+  difficultyFilter  String?   @map("difficulty_filter")
+  questionCount     Int       @map("question_count")
+  mode              String    @default("solo")
+  status            String    @default("active")
+  createdBy         String?   @map("created_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  quizType     QuizType             @relation(fields: [quizTypeId], references: [id])
+  creator      User?                @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  participants SessionParticipant[]
+  questions    SessionQuestion[]
+  answers      SessionAnswer[]
+
+  @@index([createdBy, createdAt])
+  @@map("quiz_sessions")
+}
+
+model SessionParticipant {
+  sessionId  String    @map("session_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  score      Int       @default(0)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+
+  session QuizSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, userId])
+  @@map("session_participants")
+}
+
+model SessionQuestion {
+  sessionId String @map("session_id") @db.Uuid
+  sequence  Int
+  countryId Int    @map("country_id")
+
+  session QuizSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  country Country     @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, sequence])
+  @@map("session_questions")
+}
+
+model SessionAnswer {
+  sessionId   String   @map("session_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  countryId   Int      @map("country_id")
+  wasCorrect  Boolean  @map("was_correct")
+  /// Captured now for future speed-based scoring in multiplayer.
+  timeTakenMs Int?     @map("time_taken_ms")
+  answeredAt  DateTime @default(now()) @map("answered_at") @db.Timestamptz(6)
+
+  session QuizSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  country Country     @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, userId, countryId])
+  // Drives the day-streak / weekly-activity derivation on the home screen.
+  @@index([userId, answeredAt])
+  @@map("session_answers")
+}
