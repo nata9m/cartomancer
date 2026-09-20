@@ -110,6 +110,12 @@ export interface RecallSession {
 
 export interface RecallGuessRequest {
   guess: string;
+  /**
+   * Guest play only: the client owns the recalled list (nothing is persisted),
+   * so it tells the API what it already has in order to get `duplicate` right.
+   * Ignored for signed-in sessions, where the server knows.
+   */
+  alreadyRecalledCountryIds?: number[];
 }
 
 export interface RecallGuessResult {
@@ -128,6 +134,22 @@ export interface RecallResults {
   recalled: { id: number; name: string; isoCode: string }[];
   missed: { id: number; name: string; isoCode: string }[];
   isGuest: boolean;
+}
+
+/** Stateless answer check used by guest play, where no session exists. */
+export interface AnswerCheckRequest {
+  quizTypeKey: string;
+  countryId: number;
+  answer: string;
+}
+
+export interface CountryRef {
+  id: number;
+  name: string;
+  isoCode: string;
+  capital: string;
+  region: Region;
+  difficulty: Difficulty;
 }
 
 export interface ProgressSummary {
