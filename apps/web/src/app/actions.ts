@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { signIn, signOut } from '@/auth';
+import { isProviderEnabled, signIn, signOut, type SocialProviderId } from '@/auth';
 import { GUEST_COOKIE } from '@/lib/guest';
 
 /** "Skip for now": remembers the choice and shows the guest home screen. */
@@ -18,7 +18,13 @@ export async function continueAsGuest(): Promise<void> {
   redirect('/');
 }
 
-export async function signInWithProvider(provider: 'google' | 'apple'): Promise<void> {
+export async function signInWithProvider(provider: SocialProviderId): Promise<void> {
+  // The login screen only offers registered providers, but a hand-rolled POST
+  // could still name one that isn't — and Auth.js would throw for an unknown
+  // provider. Send those back to the login screen instead.
+  if (!isProviderEnabled(provider)) {
+    redirect('/login');
+  }
   await signIn(provider, { redirectTo: '/' });
 }
 

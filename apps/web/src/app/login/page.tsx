@@ -1,9 +1,14 @@
 import { redirect } from 'next/navigation';
 import { IconBrandApple, IconBrandGoogle, IconMap } from '@/components/icons';
 import { continueAsGuest, signInWithProvider } from '@/app/actions';
-import { auth, providerStatus } from '@/auth';
+import { auth, enabledProviders, type SocialProviderId } from '@/auth';
 
 export const dynamic = 'force-dynamic';
+
+const PROVIDER_ICONS: Record<SocialProviderId, React.ReactNode> = {
+  google: <IconBrandGoogle size={17} stroke={1.9} />,
+  apple: <IconBrandApple size={17} stroke={1.9} />,
+};
 
 export default async function LoginPage() {
   const session = await auth();
@@ -11,7 +16,10 @@ export default async function LoginPage() {
     redirect('/');
   }
 
-  const noProviders = !providerStatus.google && !providerStatus.apple;
+  // Buttons come from the providers that are actually registered, so a provider
+  // whose credentials are absent — Apple, for the first release — simply isn't
+  // offered, rather than being offered and failing.
+  const providers = enabledProviders();
 
   return (
     <main className="app-shell app-shell--centered">
@@ -23,39 +31,30 @@ export default async function LoginPage() {
         <p className="tagline">Learn capitals, countries, and flags — together</p>
       </div>
 
-      <div className="provider-buttons">
-        <form
-          action={async () => {
-            'use server';
-            await signInWithProvider('google');
-          }}
-        >
-          <button type="submit" className="button-secondary" disabled={!providerStatus.google}>
-            <IconBrandGoogle size={17} stroke={1.9} />
-            Continue with Google
-          </button>
-        </form>
-
-        <form
-          action={async () => {
-            'use server';
-            await signInWithProvider('apple');
-          }}
-        >
-          <button type="submit" className="button-secondary" disabled={!providerStatus.apple}>
-            <IconBrandApple size={17} stroke={1.9} />
-            Continue with Apple
-          </button>
-        </form>
-      </div>
-
-      {noProviders ? (
+      {providers.length > 0 ? (
+        <div className="provider-buttons">
+          {providers.map((provider) => (
+            <form
+              key={provider.id}
+              action={async () => {
+                'use server';
+                await signInWithProvider(provider.id);
+              }}
+            >
+              <button type="submit" className="button-secondary">
+                {PROVIDER_ICONS[provider.id]}
+                {provider.label}
+              </button>
+            </form>
+          ))}
+        </div>
+      ) : (
         <p className="small-muted centered">
-          No OAuth credentials are configured yet, so sign-in is disabled. Set AUTH_GOOGLE_ID /
-          AUTH_GOOGLE_SECRET and the AUTH_APPLE_* variables (see .env.example) once the apps are
-          registered with Google and Apple. Guest mode works regardless.
+          No sign-in providers are configured, so account sign-in is unavailable. Set
+          AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET (see .env.example) once the OAuth app is
+          registered. Guest mode works regardless.
         </p>
-      ) : null}
+      )}
 
       <form action={continueAsGuest} className="centered" style={{ marginTop: 4 }}>
         <button type="submit" className="link-underline">

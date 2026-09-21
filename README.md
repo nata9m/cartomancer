@@ -79,9 +79,18 @@ Each app has a commented `.env.example`; the short version:
 `INTERNAL_API_KEY`, optional `CORS_ORIGIN`, `LOG_LEVEL`.
 
 **`apps/web`** — `AUTH_SECRET`, `AUTH_URL`, `AUTH_TRUST_HOST`, `AUTH_GOOGLE_ID`,
-`AUTH_GOOGLE_SECRET`, `AUTH_APPLE_ID`, `AUTH_APPLE_TEAM_ID`, `AUTH_APPLE_KEY_ID`,
-`AUTH_APPLE_PRIVATE_KEY`, `API_INTERNAL_URL`, `INTERNAL_API_KEY`, `DATABASE_URL`,
-`PORT` (3000), `HOSTNAME` (0.0.0.0).
+`AUTH_GOOGLE_SECRET`, `API_INTERNAL_URL`, `INTERNAL_API_KEY`, `DATABASE_URL`,
+`PORT` (3000), `HOSTNAME` (0.0.0.0), plus the four optional `AUTH_APPLE_*`
+variables below.
+
+Every sign-in provider is optional and decided per provider from the
+environment. `AUTH_APPLE_ID`, `AUTH_APPLE_TEAM_ID`, `AUTH_APPLE_KEY_ID` and
+`AUTH_APPLE_PRIVATE_KEY` may be absent entirely: the Apple provider is then not
+registered, its button is not rendered, and the app boots normally on Google
+alone (plus guest mode). Apple needs a paid Developer Program membership, so the
+first release ships without it; setting all four turns it back on with no code
+change. The same is true of Google — with neither configured, sign-in is simply
+unavailable and guest mode still works.
 
 `INTERNAL_API_KEY` must match between the two. Leaving it empty disables the
 check: fine locally, where the api logs a warning at boot and carries on, and
@@ -184,6 +193,14 @@ the wrong terminal behaviour somewhere nobody reads boot logs. Outside
 production it still warns and carries on, which is what local development
 relies on.
 
+**Sign-in providers are optional, individually.** The web container does not
+require the four `AUTH_APPLE_*` variables: absent means the Apple provider is
+not registered and its button is not rendered, not that the container fails to
+start. The first release is Google-only for that reason (Apple requires a paid
+Developer Program membership), and the Apple code is still in place — set the
+four variables and redeploy to bring the button back. Nothing in the app's env
+validation requires them.
+
 Everything else comes from the contract's lists as given. `HOST` (api) and
 `HOSTNAME` (web) default to `0.0.0.0` in the images, so they need not be set.
 
@@ -268,12 +285,16 @@ involves:
   set so the quiz can be played end to end. The trivia quiz only offers
   countries that have a clue, so it currently caps out at ten questions
   regardless of the 10/20/30 choice. Append rows and re-seed.
-- **OAuth apps not registered.** `AUTH_GOOGLE_*` and `AUTH_APPLE_*` are
-  placeholders; the apps still have to be created with Google and Apple (the
-  redirect URIs are documented in `apps/web/.env.example`). The login screen
-  renders both buttons and disables whichever has no credentials, and guest mode
-  works regardless. Apple issues no static client secret, so the web app mints
-  the ES256 JWT itself from the team id, key id and private key.
+- **OAuth apps not registered.** `AUTH_GOOGLE_*` are placeholders; the app still
+  has to be created with Google (the redirect URI is documented in
+  `apps/web/.env.example`). The login screen offers exactly the providers that
+  are configured, and guest mode works regardless.
+- **Apple sign-in is off by default.** It needs a paid Apple Developer Program
+  membership, so the first release ships Google-only. The code is intact: set
+  `AUTH_APPLE_ID`, `AUTH_APPLE_TEAM_ID`, `AUTH_APPLE_KEY_ID` and
+  `AUTH_APPLE_PRIVATE_KEY` and the provider and its button come back. Apple
+  issues no static client secret, so the web app mints the ES256 JWT itself from
+  the team id, key id and private key.
 - **GHCR package visibility.** After the first successful push, the
   `cartomancer-web` and `cartomancer-api` packages default to private. They need
   to be set to **public** by hand on github.com (package → Package settings →
