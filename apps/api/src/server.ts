@@ -22,9 +22,23 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
   app.decorateRequest('actor', null as unknown as RequestActor);
 
   if (!env.INTERNAL_API_KEY) {
+    // Without the shared secret the api trusts whoever sends
+    // x-cartomancer-user-id, and the Gateway publishes /api on the public
+    // internet — so in production this is a hole, not a warning. Refusing to
+    // boot is the only signal that gets noticed in a cluster: nobody reads the
+    // logs of a pod that started fine, but a pod that will not start is loud
+    // and immediate.
+    if (env.NODE_ENV === 'production') {
+      throw new Error(
+        'INTERNAL_API_KEY is required when NODE_ENV=production: without it the api ' +
+          'would accept any caller\'s x-cartomancer-user-id header and serve another ' +
+          "user's progress. Set it to the same value as the web app's.",
+      );
+    }
     app.log.warn(
       'INTERNAL_API_KEY is empty — every caller is trusted to name a user id. ' +
-        'Fine for local development, never in the cluster.',
+        'Fine for local development, never in the cluster (where an empty key ' +
+        'refuses to start).',
     );
   }
 

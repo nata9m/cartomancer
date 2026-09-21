@@ -463,6 +463,40 @@ describe('internal api key', () => {
     assert.equal(health.statusCode, 200, 'health checks must not need credentials');
     await guarded.close();
   });
+
+  it('refuses to start in production without one', async () => {
+    // Fail closed: /api is published on the public internet, and an empty key
+    // means the api trusts any caller's x-cartomancer-user-id. A warning is the
+    // wrong terminal behaviour in a cluster, where nobody reads boot logs.
+    await assert.rejects(
+      buildServer({ ...loadEnv(), LOG_LEVEL: 'warn', INTERNAL_API_KEY: '', NODE_ENV: 'production' }),
+      /INTERNAL_API_KEY is required when NODE_ENV=production/,
+    );
+  });
+
+  it('starts in production when one is set', async () => {
+    const app1 = await buildServer({
+      ...loadEnv(),
+      LOG_LEVEL: 'warn',
+      INTERNAL_API_KEY: 'sekrit',
+      NODE_ENV: 'production',
+    });
+    const health = await app1.inject({ method: 'GET', url: '/healthz' });
+    assert.equal(health.statusCode, 200);
+    await app1.close();
+  });
+
+  it('still only warns outside production', async () => {
+    const dev = await buildServer({
+      ...loadEnv(),
+      LOG_LEVEL: 'warn',
+      INTERNAL_API_KEY: '',
+      NODE_ENV: 'development',
+    });
+    const open = await dev.inject({ method: 'GET', url: '/api/quiz-types' });
+    assert.equal(open.statusCode, 200, 'local development must not need the key');
+    await dev.close();
+  });
 });
 
 async function startSession(
