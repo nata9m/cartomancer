@@ -65,18 +65,36 @@ jobs:
       - name: Check SQL and TypeScript answer normalisation agree
         run: pnpm --filter @cartomancer/db verify:matching
 
+  # The two images must carry the SAME timestamp tag for a commit: the cluster
+  # picks the newest build by sorting that timestamp, and web and api are
+  # deployed as a pair (the api image also runs the migrations), so a mismatched
+  # pair is the schema/runtime split we are specifically avoiding. The matrix
+  # jobs run in parallel, so each computing its own `date` would differ by
+  # seconds — hence one stamp, computed once, shared by both.
+  stamp:
+    name: timestamp for this build
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      ts: ${{ steps.ts.outputs.ts }}
+    steps:
+      - id: ts
+        run: echo "ts=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
   images:
     # Built on every push and pull request — the first run of these Dockerfiles
     # failed on a missing file that nothing else would have caught — but only
     # published from main.
     name: build ${{ matrix.app }} image
-    needs: verify
+    needs: [verify, stamp]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
-      fail-fast: false
+      # Stop the sibling job as soon as one image fails, so a broken build is
+      # less likely to publish half a pair.
+      fail-fast: true
       matrix:
         app: [web, api]
     steps:
@@ -95,10 +113,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/cartomancer-${{ matrix.app }}
-          # Short git SHA only (e.g. :abc1234). The consuming Flux repo pins by
-          # digest and Renovate tracks new digests, so no :latest is needed.
+          # Two tags, no :latest — everything downstream pins by digest.
+          #   <short-sha>              e.g. abc1234 — for `kubectl set image`
+          #   <unix-ts>-<short-sha>    e.g. 1758441419-abc1234 — sortable, and
+          #                            what the cluster's image automation uses
+          #                            to tell which build is newest, since bare
+          #                            SHAs have no meaningful order.
           tags: |
             type=sha,prefix=,format=short
+            type=raw,value=${{ needs.stamp.outputs.ts }}-{{sha}}
 
       - uses: docker/build-push-action@v6
         with:
