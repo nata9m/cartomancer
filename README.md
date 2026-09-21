@@ -252,6 +252,16 @@ Two guards make that safe, because the threshold alone is not enough —
 a set of probe guesses (and asserts that the SQL and TypeScript normalisers
 agree on all 528 seeded strings), which is how to re-tune the threshold.
 
+**"I don't know"** on a type-in question submits an empty answer, so it is
+scored and recorded exactly like a wrong guess — streak reset, country on the
+missed list — while revealing the correct answer. Giving up teaches something
+and still costs what a wrong guess costs.
+
+**Recall entry.** Countries are submitted with the *Add country* button or the
+Enter key; both run the same match. A guess that names no country in the region
+is refused outright — the counter and the recalled list don't move — and a
+duplicate is called out rather than counted twice.
+
 **Guest mode.** A guest has no `user_id`, and there is no synthetic user row.
 Starting a quiz returns the same question set with a `guest-…` id and writes
 nothing; answers are checked by stateless endpoints (`/api/answers/check`,

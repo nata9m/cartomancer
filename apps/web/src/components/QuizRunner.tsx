@@ -90,8 +90,17 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   }, [index, session?.quizType.format]);
 
   const answer = useCallback(
-    async (value: string) => {
-      if (!session || !question || busy || phase === 'revealed' || value.trim().length === 0) {
+    /**
+     * `gaveUp` is the "I don't know" path: it submits an empty answer, which
+     * cannot match anything, so it is recorded and scored exactly like a wrong
+     * guess — the streak resets and the country goes on the missed list. The
+     * only difference is that the empty-input guard doesn't apply.
+     */
+    async (value: string, gaveUp = false) => {
+      if (!session || !question || busy || phase === 'revealed') {
+        return;
+      }
+      if (!gaveUp && value.trim().length === 0) {
         return;
       }
       setBusy(true);
@@ -292,9 +301,23 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
             onChange={(event) => setTyped(event.target.value)}
           />
           {phase === 'answering' ? (
-            <button type="submit" className="button-secondary" disabled={busy || typed.trim() === ''}>
-              Check answer
-            </button>
+            <>
+              <button
+                type="submit"
+                className="button-secondary"
+                disabled={busy || typed.trim() === ''}
+              >
+                Check answer
+              </button>
+              <button
+                type="button"
+                className="link-underline give-up"
+                disabled={busy}
+                onClick={() => void answer('', true)}
+              >
+                I don&rsquo;t know
+              </button>
+            </>
           ) : null}
         </form>
       )}

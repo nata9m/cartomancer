@@ -172,6 +172,15 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
           disabled={busy}
           onChange={(event) => setTyped(event.target.value)}
         />
+        {/*
+          Submitting with Enter alone leaves no visible way to add a country on
+          a touch keyboard. The button runs the same path, so a guess that
+          doesn't match a country in this region is still refused — the counter
+          and the list don't move, and the note below says why.
+        */}
+        <button type="submit" className="button-secondary" disabled={busy || typed.trim() === ''}>
+          Add country
+        </button>
       </form>
       <p className={`inline-note${note?.kind === 'error' ? ' inline-note--error' : ''}`}>
         {note?.text ?? ''}

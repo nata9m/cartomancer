@@ -629,6 +629,13 @@ a {
   gap: 8px;
 }
 
+/* "I don't know": a real action, but it should never compete with answering. */
+.give-up {
+  align-self: center;
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+
 .link-underline {
   font-size: 13px;
   text-decoration: underline;
