@@ -115,6 +115,59 @@ tagged with the short commit SHA (`ghcr.io/nata9m/cartomancer-web:abc1234`).
 No `latest` tag: the Flux repo pins by digest and Renovate opens PRs for new
 digests.
 
+### Releasing
+
+**Merging to `main` is the release.** There is no PR to open against the cluster
+repo for a routine version bump — CI publishes both images and the cluster picks
+them up on its own.
+
+Each build publishes two tags per image, and never `:latest` (everything
+downstream pins by digest):
+
+| Tag | Example | Used for |
+| --- | --- | --- |
+| `<short-sha>` | `abc1234` | `kubectl set image` in the dev namespace |
+| `<unix-ts>-<short-sha>` | `1758441419-abc1234` | how the cluster tells which build is newest |
+
+The timestamp is computed **once**, in its own job, and shared by both matrix
+jobs. That is not incidental: the cluster selects the newest build by sorting
+that timestamp and deploys web and api as a pair — the api image runs the
+migrations — so the two images must carry the *same* timestamp for a commit. If
+each job computed its own `date`, they would differ by seconds and the pair
+could split.
+
+What the cluster requires of every build, and what breaks if it stops being true:
+
+1. **Both images, every time.** They are upgraded as a pair; publishing one
+   without the other will not deploy. (The matrix is `fail-fast: true` so a
+   failing build cancels its sibling, which narrows but does not fully close the
+   window where one image has pushed and the other has not.)
+2. **Both packages stay public.** The cluster has no pull credential for them.
+3. **The api image keeps shipping Prisma**, so the init container's
+   `node_modules/.bin/prisma migrate deploy` keeps working.
+4. **The sortable tag keeps being published**, on both images, same value.
+
+A merge reaches production in roughly 5–10 minutes with no review and no CI gate
+on the cluster side — **this repository's CI is the last thing between a merge
+and the live site.** Treat a red build accordingly.
+
+Two things are *not* automatic:
+
+- **Reference-data changes** (difficulty tiers, trivia clues, country data) live
+  in the database, not the image. After the rollout, re-run the seed — it
+  upserts, so it updates rows in place and leaves progress alone:
+  `kubectl -n cartomancer exec deploy/cartomancer-api -- node node_modules/@cartomancer/db/dist/seed.js`
+- **New environment variables or secrets, new routes or ports, and resource
+  limits** need a reviewed PR on the cluster side. Ask before building something
+  that depends on one.
+
+Migrations run in an init container before the api starts, and a failed
+migration stops the rollout with the previous version still serving. That makes
+backwards-compatible migrations a requirement rather than a preference: during a
+rollout the old code briefly runs against the new schema, so additive changes
+are safe and a destructive one (dropping or renaming a column the old code still
+reads) needs the usual expand / migrate / contract split across two releases.
+
 ### Running migrations in the cluster
 
 The api image carries the Prisma schema, the migrations and the Prisma CLI, so
