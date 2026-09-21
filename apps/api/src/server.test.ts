@@ -280,6 +280,28 @@ describe('signed-in quiz session', () => {
     }
   });
 
+  it('never repeats a country inside one session', async () => {
+    const session = await startSession('capitals-c2cap-mc', { questionCount: 30 });
+    const ids = session.questions.map((q: { countryId: number }) => q.countryId);
+    assert.equal(ids.length, 30);
+    assert.equal(new Set(ids).size, 30, 'every question must be a different country');
+  });
+
+  it('honours the difficulty filter', async () => {
+    for (const difficulty of ['Easy', 'Medium', 'Hard'] as const) {
+      const session = await startSession('capitals-c2cap-mc', { difficulty, questionCount: 20 });
+      const countries = await prisma.country.findMany({
+        where: { id: { in: session.questions.map((q: { countryId: number }) => q.countryId) } },
+        select: { difficulty: true },
+      });
+      assert.equal(countries.length, 20);
+      assert.ok(
+        countries.every((c) => c.difficulty === difficulty),
+        `every question in a ${difficulty} round must be a ${difficulty} country`,
+      );
+    }
+  });
+
   it('rejects unknown quiz types and bad filters', async () => {
     const unknown = await app.inject({
       method: 'POST',

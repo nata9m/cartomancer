@@ -284,17 +284,15 @@ Rendering branches on category + format (+ direction), never on a specific key.
 These are the things that are deliberately unfinished, and what finishing them
 involves:
 
-- **Difficulty tiers — placeholder.** Every one of the 195 countries is seeded
-  `difficulty: 'Medium'`, marked `TODO(difficulty)` in
-  `packages/shared/src/countries.ts`. The real split is a hand-drafted,
-  roughly-equal three-way tiering that lives with the human. Until it lands the
-  difficulty filter is a no-op (any tier other than Medium matches nothing, and
-  "All levels" behaves normally). Applying it is a one-file data edit plus a
-  re-seed — no schema or query change, since nothing branches on a specific tier.
-- **Trivia clues — 10 of 195.** `packages/shared/src/facts.ts` holds a starter
-  set so the quiz can be played end to end. The trivia quiz only offers
-  countries that have a clue, so it currently caps out at ten questions
-  regardless of the 10/20/30 choice. Append rows and re-seed.
+- **Difficulty tiers — applied.** The approved hand-drafted split is in
+  `packages/shared/src/countries.ts`: 63 Easy, 69 Medium, 63 Hard. Revising it
+  is an edit to those values plus a re-seed; nothing branches on a specific
+  tier.
+- **Trivia clues — 143 of 195.** `packages/shared/src/facts.ts` holds one clue
+  per country, so the trivia quiz draws on 143 distinct questions — well beyond
+  its longest round. The remaining 52 countries have none yet; appending rows
+  and re-seeding is all it takes, and the house rules for writing a playable
+  clue are at the top of that file.
 - **OAuth apps not registered.** `AUTH_GOOGLE_*` are placeholders; the app still
   has to be created with Google (the redirect URI is documented in
   `apps/web/.env.example`). The login screen offers exactly the providers that

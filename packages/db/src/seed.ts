@@ -74,7 +74,7 @@ async function seedFacts(): Promise<void> {
     });
     written += 1;
   }
-  console.log(`  country_facts: ${written} rows (starter set — see TODO(trivia))`);
+  console.log(`  country_facts: ${written} rows`);
 }
 
 async function main(): Promise<void> {
