@@ -253,12 +253,13 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
                 }}
               >
                 {option.isoCode ? (
-                  <>
-                    <span className="option-flag-box">
-                      <Flag isoCode={option.isoCode} label={option.label} variant="fill" />
-                    </span>
-                    <span className="option-caption">{option.label}</span>
-                  </>
+                  // Flag tiles carry no caption: naming the country under each
+                  // flag would answer the question. The label stays in the data
+                  // (it is what gets submitted and matched), and the flag's
+                  // accessible name is left generic for the same reason.
+                  <span className="option-flag-box">
+                    <Flag isoCode={option.isoCode} variant="fill" />
+                  </span>
                 ) : (
                   <span>{option.label}</span>
                 )}
