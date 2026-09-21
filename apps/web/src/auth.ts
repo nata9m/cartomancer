@@ -5,21 +5,46 @@ import Apple from 'next-auth/providers/apple';
 import Google from 'next-auth/providers/google';
 import { createAppleClientSecret } from './lib/apple';
 
+export const SOCIAL_PROVIDER_IDS = ['google', 'apple'] as const;
+export type SocialProviderId = (typeof SOCIAL_PROVIDER_IDS)[number];
+
+export interface SocialProvider {
+  id: SocialProviderId;
+  label: string;
+}
+
 /**
- * Which social providers are wired up. The OAuth apps still have to be
- * registered with Google and Apple by hand, so the app has to work — guest mode
- * included — with either or neither configured. The login screen renders both
- * buttons and disables the ones with no credentials rather than pretending.
+ * Which social providers are actually wired up, decided per provider from the
+ * environment.
+ *
+ * Every provider is optional. Apple in particular needs a paid Developer
+ * Program membership to issue a Services ID and a Sign in with Apple key, so
+ * the first release ships Google-only and the four AUTH_APPLE_* variables are
+ * simply absent from the container. Absent must mean "that provider is off",
+ * never "fail to boot": the Apple provider below is constructed only inside
+ * this check, so nothing reads those variables — or tries to sign a client
+ * secret with them — when they aren't there.
+ *
+ * Turning Apple back on is exactly: set the four variables, redeploy.
  */
-export const providerStatus = {
-  google: Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET),
-  apple: Boolean(
+export function enabledProviders(): SocialProvider[] {
+  const enabled: SocialProvider[] = [];
+  if (process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET) {
+    enabled.push({ id: 'google', label: 'Continue with Google' });
+  }
+  if (
     process.env.AUTH_APPLE_ID &&
-      process.env.AUTH_APPLE_TEAM_ID &&
-      process.env.AUTH_APPLE_KEY_ID &&
-      process.env.AUTH_APPLE_PRIVATE_KEY,
-  ),
-};
+    process.env.AUTH_APPLE_TEAM_ID &&
+    process.env.AUTH_APPLE_KEY_ID &&
+    process.env.AUTH_APPLE_PRIVATE_KEY
+  ) {
+    enabled.push({ id: 'apple', label: 'Continue with Apple' });
+  }
+  return enabled;
+}
+
+export const isProviderEnabled = (id: SocialProviderId): boolean =>
+  enabledProviders().some((provider) => provider.id === id);
 
 /**
  * Lazy config: Apple's client secret has to be signed asynchronously, so the
@@ -27,8 +52,9 @@ export const providerStatus = {
  */
 export const { handlers, signIn, signOut, auth } = NextAuth(async () => {
   const providers: NextAuthConfig['providers'] = [];
+  const enabled = enabledProviders().map((provider) => provider.id);
 
-  if (providerStatus.google) {
+  if (enabled.includes('google')) {
     providers.push(
       Google({
         clientId: process.env.AUTH_GOOGLE_ID as string,
@@ -38,7 +64,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth(async () => {
     );
   }
 
-  if (providerStatus.apple) {
+  if (enabled.includes('apple')) {
     providers.push(
       Apple({
         clientId: process.env.AUTH_APPLE_ID as string,
