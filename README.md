@@ -84,8 +84,9 @@ Each app has a commented `.env.example`; the short version:
 `PORT` (3000), `HOSTNAME` (0.0.0.0).
 
 `INTERNAL_API_KEY` must match between the two. Leaving it empty disables the
-check, which is fine locally and never in the cluster — the api logs a warning
-at boot when it is unset.
+check: fine locally, where the api logs a warning at boot and carries on, and
+impossible in the cluster — with `NODE_ENV=production` an empty key makes the
+api refuse to start.
 
 ## Containers and CI
 
@@ -174,9 +175,14 @@ routes `/api` to the api from the public hostname, and the api trusts an
 `x-cartomancer-user-id` header to identify the user. Without a shared secret to
 authenticate the caller, anyone could read or write another user's progress by
 sending that header. With it set, the api rejects every caller that is not the
-web container (401), and guest play still works through the proxy. If it is left
-empty the api starts and logs a warning at boot rather than failing — which is
-what local development relies on, and what you do not want in the cluster.
+web container (401), and guest play still works through the proxy.
+
+**An empty key fails closed in production.** With `NODE_ENV=production` the api
+refuses to start and exits non-zero, so a missing secret surfaces as a pod that
+will not come up rather than one that quietly trusts every caller — a warning is
+the wrong terminal behaviour somewhere nobody reads boot logs. Outside
+production it still warns and carries on, which is what local development
+relies on.
 
 Everything else comes from the contract's lists as given. `HOST` (api) and
 `HOSTNAME` (web) default to `0.0.0.0` in the images, so they need not be set.
