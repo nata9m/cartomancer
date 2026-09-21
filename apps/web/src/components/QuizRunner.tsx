@@ -90,8 +90,17 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   }, [index, session?.quizType.format]);
 
   const answer = useCallback(
-    async (value: string) => {
-      if (!session || !question || busy || phase === 'revealed' || value.trim().length === 0) {
+    /**
+     * `gaveUp` is the "I don't know" path: it submits an empty answer, which
+     * cannot match anything, so it is recorded and scored exactly like a wrong
+     * guess — the streak resets and the country goes on the missed list. The
+     * only difference is that the empty-input guard doesn't apply.
+     */
+    async (value: string, gaveUp = false) => {
+      if (!session || !question || busy || phase === 'revealed') {
+        return;
+      }
+      if (!gaveUp && value.trim().length === 0) {
         return;
       }
       setBusy(true);
@@ -244,12 +253,13 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
                 }}
               >
                 {option.isoCode ? (
-                  <>
-                    <span className="option-flag-box">
-                      <Flag isoCode={option.isoCode} label={option.label} variant="fill" />
-                    </span>
-                    <span className="option-caption">{option.label}</span>
-                  </>
+                  // Flag tiles carry no caption: naming the country under each
+                  // flag would answer the question. The label stays in the data
+                  // (it is what gets submitted and matched), and the flag's
+                  // accessible name is left generic for the same reason.
+                  <span className="option-flag-box">
+                    <Flag isoCode={option.isoCode} variant="fill" />
+                  </span>
                 ) : (
                   <span>{option.label}</span>
                 )}
@@ -292,9 +302,23 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
             onChange={(event) => setTyped(event.target.value)}
           />
           {phase === 'answering' ? (
-            <button type="submit" className="button-secondary" disabled={busy || typed.trim() === ''}>
-              Check answer
-            </button>
+            <>
+              <button
+                type="submit"
+                className="button-secondary"
+                disabled={busy || typed.trim() === ''}
+              >
+                Check answer
+              </button>
+              <button
+                type="button"
+                className="link-underline give-up"
+                disabled={busy}
+                onClick={() => void answer('', true)}
+              >
+                I don&rsquo;t know
+              </button>
+            </>
           ) : null}
         </form>
       )}

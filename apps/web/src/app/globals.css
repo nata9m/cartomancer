@@ -500,6 +500,27 @@ a {
   align-items: stretch;
   gap: 6px;
   padding: 8px;
+  position: relative;
+}
+
+/* The answered-state tick/cross floats over the flag, since the tile has no
+   caption row to sit beside, on a chip so it stays legible against any flag. */
+.option--flag .option-mark {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  margin-left: 0;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 0.5px var(--border-strong);
+}
+
+/* Options are disabled after answering to stop further clicks, not to be
+   greyed out — the generic disabled dimming would wash out the very
+   green/red feedback the answer is supposed to give. */
+.option:disabled {
+  opacity: 1;
 }
 
 .option-flag-box {
@@ -627,6 +648,13 @@ a {
   align-items: center;
   justify-content: center;
   gap: 8px;
+}
+
+/* "I don't know": a real action, but it should never compete with answering. */
+.give-up {
+  align-self: center;
+  margin-top: 2px;
+  color: var(--text-secondary);
 }
 
 .link-underline {
