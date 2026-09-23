@@ -99,5 +99,48 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
   await registerSessionRoutes(app);
   await registerRecallRoutes(app);
 
+  void warnIfReferenceDataLooksUnseeded(app);
+
   return app;
+}
+
+/**
+ * Reference data lives in the database, so an api serving a database that was
+ * never seeded for this image looks healthy and answers wrongly. That happened:
+ * every country carried the placeholder tier, and the live site said "No
+ * countries match those filters" for Easy and Hard while Medium quietly
+ * returned all 195.
+ *
+ * The rollout seeds now (packages/db/scripts/migrate-deploy.mjs), so this is
+ * the backstop for when that did not run or failed. It warns rather than
+ * refusing to boot: unlike a missing INTERNAL_API_KEY, stale reference data is
+ * not a security hole, and taking the site down over it would be worse than
+ * the bug. Never awaited — the api must come up whether or not this query can.
+ */
+async function warnIfReferenceDataLooksUnseeded(app: FastifyInstance): Promise<void> {
+  try {
+    const tiers = await app.prisma.country.groupBy({
+      by: ['difficulty'],
+      _count: { _all: true },
+    });
+
+    if (tiers.length === 0) {
+      app.log.error(
+        'No countries in the database: every quiz will fail to start. Run ' +
+          'node node_modules/@cartomancer/db/dist/seed.js',
+      );
+      return;
+    }
+    const only = tiers.length === 1 ? tiers[0] : undefined;
+    if (only) {
+      app.log.error(
+        { difficulty: only.difficulty, countries: only._count._all },
+        'Every country shares one difficulty, so the difficulty filter returns ' +
+          'nothing for the other two tiers. The database is behind this image — run ' +
+          'node node_modules/@cartomancer/db/dist/seed.js',
+      );
+    }
+  } catch (error) {
+    app.log.warn({ err: error }, 'could not check whether reference data is seeded');
+  }
 }
