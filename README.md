@@ -129,19 +129,33 @@ downstream pins by digest):
 | `<short-sha>` | `abc1234` | `kubectl set image` in the dev namespace |
 | `<unix-ts>-<short-sha>` | `1758441419-abc1234` | how the cluster tells which build is newest |
 
-The timestamp is computed **once**, in its own job, and shared by both matrix
-jobs. That is not incidental: the cluster selects the newest build by sorting
-that timestamp and deploys web and api as a pair — the api image runs the
-migrations — so the two images must carry the *same* timestamp for a commit. If
-each job computed its own `date`, they would differ by seconds and the pair
-could split.
+The timestamp is computed **once**, in its own job, and read by every job after
+it. That is not incidental: the cluster selects the newest build by sorting that
+timestamp and deploys web and api as a pair — the api image runs the migrations —
+so the two images must carry the *same* timestamp for a commit. If each job
+computed its own `date`, they would differ by seconds and the pair could split.
+
+**Building and publishing are separate jobs, and that is the point.** The matrix
+`build` jobs never touch the registry: each writes its image to a local tarball
+and hands it over as an artifact, and the job is not granted `packages: write`,
+so no step in it could push even if one tried. The `publish` job `needs` the
+whole matrix, so GitHub will not start it unless *both* images built; it loads
+both tarballs, logs in, and pushes all four tags. A failing web build therefore
+cannot leave a published api image behind, because when web fails nothing has
+been pushed at all.
+
+What is left is much smaller and unavoidable: two sequential pushes to two
+separate packages cannot be made one atomic operation, so a registry outage
+between them can still land web without api. That is a retry rather than a silent
+split: **Re-run failed jobs** keeps the stamp job's outputs and the uploaded
+tarballs (kept for a day), so it republishes the *same* tags instead of inventing
+a new timestamp. It also cannot be caused by our own code failing to build,
+which is the failure that actually happens.
 
 What the cluster requires of every build, and what breaks if it stops being true:
 
 1. **Both images, every time.** They are upgraded as a pair; publishing one
-   without the other will not deploy. (The matrix is `fail-fast: true` so a
-   failing build cancels its sibling, which narrows but does not fully close the
-   window where one image has pushed and the other has not.)
+   without the other will not deploy — hence the build/publish split above.
 2. **Both packages stay public.** The cluster has no pull credential for them.
 3. **The api image keeps shipping Prisma**, so the init container's
    `node_modules/.bin/prisma migrate deploy` keeps working.
