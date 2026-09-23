@@ -65,6 +65,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 16px, never smaller: iOS WebKit zooms the whole page in on any form field it
+   focuses whose computed font-size is under 16px, and it does not zoom back
+   out — the layout is left cut off on the right with the heading off the top.
+   Every iOS browser is WebKit, so this is not Safari-only. Fixing it with
+   `maximum-scale=1` in the viewport would work and would also take pinch-zoom
+   away from everyone, which is not a trade this app makes. */
 select,
 input[type='text'] {
   height: 36px;
@@ -73,7 +79,7 @@ input[type='text'] {
   background: var(--surface-2);
   color: var(--text-primary);
   padding: 0 10px;
-  font-size: 14px;
+  font-size: 16px;
   font-family: inherit;
 }
 
@@ -585,7 +591,10 @@ a {
   align-items: stretch;
 }
 
-.answer-input {
+/* `input.answer-input`, not `.answer-input`: the base rule above is
+   `input[type='text']`, which outranks a bare class, so the height and size
+   meant for the answer field were silently losing to it. */
+input.answer-input {
   width: 100%;
   height: 42px;
   text-align: center;

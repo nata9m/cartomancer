@@ -392,6 +392,11 @@ involves:
   These keep each flag's official proportions; the answer tiles stay a uniform
   4:3 grid and letterbox the flag inside. Re-run the script after changing the
   country list, and do not hand-edit the files.
+- **Form fields are never smaller than 16px.** iOS WebKit zooms the page in on
+  a focused field below that and does not zoom back out, which left the recall
+  answer input unusable on an iPhone. The base `input`/`select` rule in
+  `globals.css` carries it; the alternative, `maximum-scale=1` in the viewport,
+  would also take pinch-zoom away from everyone.
 - **Region assignment** follows the UN geoscheme for the transcontinental cases:
   Turkey, Cyprus, Georgia, Armenia, Azerbaijan and Kazakhstan are in Asia,
   Russia in Europe.
