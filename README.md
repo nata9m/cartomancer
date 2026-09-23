@@ -165,12 +165,18 @@ A merge reaches production in roughly 5–10 minutes with no review and no CI ga
 on the cluster side — **this repository's CI is the last thing between a merge
 and the live site.** Treat a red build accordingly.
 
-Two things are *not* automatic:
+**Reference-data changes** (difficulty tiers, trivia clues, country data) live
+in the database, not the image, and the rollout now applies them: the same
+initContainer step that runs the migrations seeds afterwards. It used to be a
+manual command, and forgetting it cost two days of "No countries match those
+filters" on Easy and Hard while production still held the pre-tier data. The
+seed upserts on natural keys and never touches progress, so re-running it on
+every rollout is safe; `CARTOMANCER_SKIP_SEED` turns it off, and a seed that
+fails is loud but does not block the rollout — the api repeats the warning at
+boot if the data still looks unseeded.
 
-- **Reference-data changes** (difficulty tiers, trivia clues, country data) live
-  in the database, not the image. After the rollout, re-run the seed — it
-  upserts, so it updates rows in place and leaves progress alone:
-  `kubectl -n cartomancer exec deploy/cartomancer-api -- node node_modules/@cartomancer/db/dist/seed.js`
+One thing is *not* automatic:
+
 - **New environment variables or secrets, new routes or ports, and resource
   limits** need a reviewed PR on the cluster side. Ask before building something
   that depends on one.
@@ -207,11 +213,22 @@ produces no `.bin` entries. It execs
 Prisma CLI and runs it from the package that holds `prisma.config.ts`, the
 schema and `migrations/`. Verified against the deployed bundle.
 
-First-time seeding of the reference data is a separate, idempotent command:
+**That step also seeds**, after the migrations succeed and only for the
+`migrate deploy` invocation — the cluster's command is unchanged, but it now
+does more than its name says, which is worth knowing when reading its logs.
+Reference data lives in the database rather than the image, so without this a
+rollout ships code expecting data the database does not have. The seed is
+idempotent, keyed on natural keys, and leaves user progress alone. It can be
+run on its own with the same effect:
 
 ```sh
 node node_modules/@cartomancer/db/dist/seed.js
 ```
+
+`CARTOMANCER_SKIP_SEED=1` skips it. A failed seed prints a warning and leaves
+the exit status to the migration, so reference data can never block a rollout;
+the api logs the same complaint at boot if every country still shares one
+difficulty, which is what an unseeded database looks like from the outside.
 
 **Routing.** Every Fastify route is under `/api/` and receives the full,
 unstripped path; none is under `/api/auth/`. Auth.js stays at its default
