@@ -15,14 +15,24 @@ import { isGuestSessionId, loadGuestRecall, saveGuestRecall } from '@/lib/guest-
 /** Long lists are truncated with a "+N more" pill, as in the mockup. */
 const PILL_LIMIT = 8;
 
+/**
+ * A list of countries, truncated to PILL_LIMIT with a pill that expands it.
+ *
+ * The overflow pill is a real button: an "All regions" round leaves up to 187
+ * countries behind the "+N more", and a pill that looks tappable and isn't is
+ * worse than no pill at all.
+ */
 function PillList({
   countries,
   tone,
+  noun,
 }: {
   countries: { id: number; name: string }[];
   tone: 'success' | 'danger';
+  noun: 'recalled' | 'missed';
 }) {
-  const shown = countries.slice(0, PILL_LIMIT);
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? countries : countries.slice(0, PILL_LIMIT);
   const remaining = countries.length - shown.length;
   return (
     <div className="pill-list">
@@ -32,7 +42,23 @@ function PillList({
           {country.name}
         </span>
       ))}
-      {remaining > 0 ? <span className="pill pill--more">+{remaining} more</span> : null}
+      {countries.length > PILL_LIMIT ? (
+        <button
+          type="button"
+          className="pill pill--more"
+          aria-expanded={expanded}
+          // Both lists can carry this button, so the visible "+185 more" is
+          // named for whichever list it belongs to.
+          aria-label={
+            expanded
+              ? `Show fewer ${noun} countries`
+              : `Show all ${countries.length} ${noun} countries`
+          }
+          onClick={() => setExpanded((previous) => !previous)}
+        >
+          {expanded ? 'Show less' : `+${remaining} more`}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -139,14 +165,14 @@ export function RecallResults({ sessionId }: { sessionId: string }) {
       {results.recalled.length > 0 ? (
         <div className="stack stack--tight">
           <span className="section-label">You recalled</span>
-          <PillList countries={results.recalled} tone="success" />
+          <PillList countries={results.recalled} tone="success" noun="recalled" />
         </div>
       ) : null}
 
       {results.missed.length > 0 ? (
         <div className="stack stack--tight">
           <span className="section-label">Missed this round</span>
-          <PillList countries={results.missed} tone="danger" />
+          <PillList countries={results.missed} tone="danger" noun="missed" />
         </div>
       ) : null}
 

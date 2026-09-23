@@ -764,9 +764,17 @@ a {
   color: var(--text-danger);
 }
 
+/* The overflow pill is a button — it expands the list — so it has to undo the
+   app's default button box (40px tall, its own radius and font size) and keep
+   the pill shape the rest of the list has. */
 .pill--more {
+  height: auto;
   background: var(--surface-1);
   color: var(--text-secondary);
+}
+
+.pill--more:hover {
+  background: var(--surface-2);
 }
 
 /* ── Results ────────────────────────────────────────────────────────────── */
