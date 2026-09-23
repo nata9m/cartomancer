@@ -440,13 +440,13 @@ a {
   line-height: 1.15;
 }
 
+/* No aspect-ratio and no frame of its own: the flag sets its own proportions
+   here — 1:2 for Bosnia and Herzegovina, square for Switzerland — and carries
+   its own edge, so there is nothing to crop and no empty box around it. */
 .prompt-flag {
   width: 200px;
   max-width: 78%;
-  aspect-ratio: 4 / 3;
-  border: 0.5px solid var(--border-strong);
-  border-radius: var(--radius);
-  overflow: hidden;
+  line-height: 0;
 }
 
 .clue-card {
@@ -523,12 +523,21 @@ a {
   opacity: 1;
 }
 
+/* Uniform 4:3 so the two-column grid keeps even rows, with the flag centred
+   inside at its own proportions. No border: the tile is already a button, and
+   a frame the flag no longer fills reads as part of the artwork. */
 .option-flag-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   aspect-ratio: 4 / 3;
-  border: 0.5px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
+  /* Without this the box is a flex item whose automatic minimum height is its
+     content, so a tall flag (Nepal's pennant, Switzerland's square) stretches
+     its tile and the grid goes ragged. min-height: 0 lets the 4:3 hold and the
+     flag letterbox inside it instead. */
+  min-height: 0;
+  padding: 2px;
 }
 
 .option-caption {
@@ -853,27 +862,39 @@ a {
   color: var(--text-muted);
 }
 
-/* ── Flags (flag-icons) ─────────────────────────────────────────────────── */
+/* ── Flags (public/flags) ───────────────────────────────────────────────── */
 
+/* The image is sized to the flag, never the flag to the image: ratios run from
+   11:28 (Qatar) through 1:1 (Switzerland) to Nepal's pennant, and fitting any
+   of them to a fixed box means cutting off the details being guessed.
+   The hairline belongs on the image rather than its container, so that flags
+   with white edges — Indonesia, Qatar's hoist — still read as flags against a
+   light surface, and so that nothing draws a frame the flag doesn't fill. */
 .flag-fill {
-  width: 100%;
-  height: 100%;
   display: block;
-  /* contain, not cover: flag aspect ratios run from 1:2 (Canada) to 1:1
-     (Switzerland), and cropping a flag to fill a 4:3 tile would cut off the
-     very details being tested. */
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
+  border: 0.5px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.prompt-flag .flag-fill {
+  width: 100%;
+  height: auto;
+}
+
+/* Letterboxed inside the 4:3 tile: whichever of the two constraints binds
+   first wins, and the other stays auto so the ratio is the flag's own. */
+.option-flag-box .flag-fill {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
 }
 
 .flag-inline {
   width: 18px;
   height: 13.5px;
+  object-fit: contain;
   border-radius: 2px;
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
   display: inline-block;
   flex: none;
 }
