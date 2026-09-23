@@ -1,6 +1,4 @@
 import type { Metadata, Viewport } from 'next';
-// flag-icons first, so globals.css can override .fi sizing for the large flags.
-import 'flag-icons/css/flag-icons.min.css';
 import './globals.css';
 
 export const metadata: Metadata = {
