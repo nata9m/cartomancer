@@ -232,9 +232,16 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
             const isCorrect = phase === 'revealed' && option.label === result?.correctAnswer;
             const isWrongPick =
               phase === 'revealed' && option.label === chosenLabel && !result?.wasCorrect;
+            // The tap has to show before the check comes back: the reveal waits
+            // on a network round-trip, and until now nothing at all changed in
+            // between, so a tap on a slow connection read as unregistered.
+            const isPending = busy && phase === 'answering' && option.label === chosenLabel;
+            const isWaiting = busy && phase === 'answering' && chosenLabel !== null && !isPending;
             const classes = [
               'option',
               option.isoCode ? 'option--flag' : '',
+              isPending ? 'option--pending' : '',
+              isWaiting ? 'option--waiting' : '',
               isCorrect ? 'option--correct' : '',
               isWrongPick ? 'option--wrong' : '',
             ]
@@ -246,6 +253,9 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
                 key={option.id}
                 type="button"
                 className={classes}
+                // Same news for a screen reader as the accent tile is for
+                // everyone else: this one is being checked.
+                aria-busy={isPending || undefined}
                 disabled={phase === 'revealed' || busy}
                 onClick={() => {
                   setChosenLabel(option.label);
