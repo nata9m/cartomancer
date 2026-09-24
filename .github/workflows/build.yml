@@ -142,6 +142,12 @@ jobs:
           file: apps/${{ matrix.app }}/Dockerfile
           push: false
           outputs: type=docker,dest=/tmp/${{ matrix.app }}.tar
+          # The web image shows this in its footer, so it must be the same
+          # seven characters the image is tagged with — hence the stamp job's
+          # output rather than a second truncation of github.sha. Only web
+          # declares the ARG; passing it to api as well would build fine but
+          # log an unused-build-arg warning on every api build.
+          build-args: ${{ matrix.app == 'web' && format('GIT_SHA={0}', needs.stamp.outputs.short) || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
@@ -166,6 +172,24 @@ jobs:
             exit 1
           fi
           printf 'tarball tags:\n%s\n' "$found"
+
+      # The web footer shows GIT_SHA, and the whole point is that it names the
+      # image you are looking at. That only holds if the build arg reached the
+      # runtime stage, which nothing else here would notice: a typo in the
+      # Dockerfile's ARG or in the build-args expression builds perfectly well
+      # and ships a footer reading "dev". The image is already loaded above.
+      - name: Check the web image knows which commit it is
+        if: ${{ matrix.app == 'web' }}
+        run: |
+          set -euo pipefail
+          owner=$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          baked=$(docker image inspect "${REGISTRY}/${owner}/cartomancer-web:${SHORT}" \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^GIT_SHA=//p')
+          if [ "$baked" != "$SHORT" ]; then
+            echo "::error::web image has GIT_SHA=${baked:-<unset>}, expected ${SHORT}"
+            exit 1
+          fi
+          echo "web image carries GIT_SHA=${baked}, matching its ${SHORT} tag"
 
       - name: Hand the image to the publish job
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

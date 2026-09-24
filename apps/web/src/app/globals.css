@@ -918,6 +918,29 @@ input.answer-input {
   color: var(--text-muted);
 }
 
+.footer-note p {
+  margin: 0;
+}
+
+/* The deployed commit, tucked under the line above. Spacing lives here rather
+   than on a sibling because .app-shell's 18px flex gap would otherwise read as
+   two separate footers. Qualified so it outranks the `.footer-note p` reset
+   directly above, which would otherwise zero this margin too. */
+.footer-note .footer-note__commit {
+  margin-top: 3px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+/* `a` inherits colour and drops underlines globally, which would leave this one
+   looking like the text above it. A hairline underline says it is tappable
+   without making a version string shout. */
+.footer-note__commit a {
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+
 /* ── Flags (public/flags) ───────────────────────────────────────────────── */
 
 /* The image is sized to the flag, never the flag to the image: ratios run from
