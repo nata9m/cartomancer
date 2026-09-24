@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import type { SessionResults } from '@cartomancer/shared';
 import { IconArrowRight, IconCircleCheck, IconFlame } from './icons';
 import { loadQuizResults, startQuizSession } from '@/lib/client-api';
+import { preloadQuestionFlags } from '@/lib/flag-art';
 import { isGuestSessionId, loadGuestQuiz, saveGuestQuiz } from '@/lib/guest-store';
 
 /**
@@ -89,6 +90,9 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
       if (session.isGuest) {
         saveGuestQuiz({ session, answers: [] });
       }
+      // Same reason as useSessionStarter: nothing precedes question one, so its
+      // artwork is warmed here, during the route transition.
+      preloadQuestionFlags(session.questions[0]);
       router.push(`/quiz/${session.id}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not start another round');

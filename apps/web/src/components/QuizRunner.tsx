@@ -12,6 +12,7 @@ import {
   loadQuizSession,
   submitAnswer,
 } from '@/lib/client-api';
+import { preloadQuestionFlags } from '@/lib/flag-art';
 import { isGuestSessionId, loadGuestQuiz, saveGuestQuiz, type GuestAnswer } from '@/lib/guest-store';
 
 type Phase = 'answering' | 'revealed';
@@ -88,6 +89,14 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
       inputRef.current?.focus();
     }
   }, [index, session?.quizType.format]);
+
+  // The whole question set is already here, so the time the player spends on
+  // this question is free bandwidth for the next one's artwork. One ahead, not
+  // the whole round: a player who quits after three questions should not have
+  // paid for twenty on mobile data.
+  useEffect(() => {
+    preloadQuestionFlags(session?.questions[index + 1]);
+  }, [index, session]);
 
   const answer = useCallback(
     /**

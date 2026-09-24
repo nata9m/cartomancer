@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { startQuizSession, startRecallSession } from './client-api';
 import type { Filters } from './filters';
+import { preloadQuestionFlags } from './flag-art';
 import { saveGuestQuiz, saveGuestRecall } from './guest-store';
 
 export const pendingKeyFor = (quizTypeKey: string, questionCount?: number): string =>
@@ -42,6 +43,11 @@ export function useSessionStarter(filters: Filters) {
       if (session.isGuest) {
         saveGuestQuiz({ session, answers: [] });
       }
+      // Question one is the one nothing precedes, so this is its only chance:
+      // its flags download during the route transition instead of a round-trip
+      // after the question is already on screen. From there QuizRunner keeps a
+      // question ahead on its own.
+      preloadQuestionFlags(session.questions[0]);
       router.push(`/quiz/${session.id}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not start that quiz');
