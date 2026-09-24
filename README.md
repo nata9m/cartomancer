@@ -414,6 +414,13 @@ involves:
   answer input unusable on an iPhone. The base `input`/`select` rule in
   `globals.css` carries it; the alternative, `maximum-scale=1` in the viewport,
   would also take pinch-zoom away from everyone.
+- **A tapped multiple-choice option marks itself before the answer is checked.**
+  The green/red reveal waits on a round-trip to the api, which on mobile data is
+  long enough that an unmarked tile reads as a missed tap. `option--pending`
+  gives the tapped tile the accent treatment and `option--waiting` dims the rest
+  until the result lands. Hover cannot do this job: a phone has no pointer, and
+  `.option:disabled` deliberately keeps disabled tiles at full opacity so the
+  reveal is not washed out.
 - **Region assignment** follows the UN geoscheme for the transcontinental cases:
   Turkey, Cyprus, Georgia, Armenia, Azerbaijan and Kazakhstan are in Asia,
   Russia in Europe.

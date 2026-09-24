@@ -529,6 +529,33 @@ a {
   opacity: 1;
 }
 
+/* The tapped tile, while the answer check is still in flight. Between the tap
+   and the green/red reveal there is a network round-trip, and nothing used to
+   change across it: every tile kept the same classes, so on a slow connection
+   the tap read as missed and invited a second one. Not left to :hover — a
+   phone has no pointer to hover with, and --surface-1 on --surface-2 is a 2%
+   difference besides. The accent triple is .chip--active's, which is the same
+   thing being said: this is the one you picked.
+
+   The :hover twin is not decoration: `button:hover` is more specific than a
+   single class, so without it a mouse would get the grey hover tint instead of
+   the accent. .option--correct and .option--wrong repeat themselves below for
+   the same reason. */
+.option--pending,
+.option--pending:hover {
+  background: var(--bg-accent);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+}
+
+/* …and the ones not tapped recede, so the choice reads as taken at a glance.
+   Spelled with :disabled to outrank the rule above it, which keeps every
+   disabled option at full opacity: during the wait they are all disabled, and
+   these three are the one case where dimming is the point. */
+.option--waiting:disabled {
+  opacity: 0.5;
+}
+
 /* Uniform 4:3 so the two-column grid keeps even rows, with the flag centred
    inside at its own proportions. No border: the tile is already a button, and
    a frame the flag no longer fills reads as part of the artwork. */
