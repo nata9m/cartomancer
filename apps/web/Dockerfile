@@ -66,6 +66,14 @@ COPY --from=build --chown=1000:1000 /repo/apps/web/.next/standalone/node_modules
 COPY --from=build --chown=1000:1000 /repo/apps/web/.next/static ./.next/static
 COPY --from=build --chown=1000:1000 /repo/apps/web/public ./public
 
+# The commit this image was built from, shown in the home screen's footer:
+# there is no .git here to read it from at runtime. Last in the stage on
+# purpose — it changes every build, so anything above it would be a cache miss
+# every time, including the install and `next build` layers. The workflow passes
+# the same seven characters the image is tagged with.
+ARG GIT_SHA=dev
+ENV GIT_SHA=$GIT_SHA
+
 USER 1000:1000
 EXPOSE 3000
 

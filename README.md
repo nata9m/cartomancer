@@ -135,6 +135,17 @@ timestamp and deploys web and api as a pair — the api image runs the migration
 so the two images must carry the *same* timestamp for a commit. If each job
 computed its own `date`, they would differ by seconds and the pair could split.
 
+**The web image knows which commit it is.** The `build` job passes the stamp
+job's short SHA to the web image as a `GIT_SHA` build arg, and the home screen's
+last line shows it, linking to the commit. The value is the same one the image
+is tagged with — from the same job output, not a second truncation — so the
+footer and the tag cannot drift, and a bug report from a phone names its build.
+The `ARG`/`ENV` pair is the last thing in the Dockerfile's runtime stage, since
+it changes every build and anything above it would be a cache miss every time.
+A build step asserts that the loaded image really carries it: a typo in the
+build arg would otherwise ship a perfectly good image whose footer reads `dev`,
+which is also what a local run shows.
+
 **Building and publishing are separate jobs, and that is the point.** The matrix
 `build` jobs never touch the registry: each writes its image to a local tarball
 and hands it over as an artifact, and the job is not granted `packages: write`,
@@ -414,6 +425,12 @@ involves:
   answer input unusable on an iPhone. The base `input`/`select` rule in
   `globals.css` carries it; the alternative, `maximum-scale=1` in the viewport,
   would also take pinch-zoom away from everyone.
+- **The home screen filters by region only.** Countries — recall — is the one
+  game it starts directly, and recall ignores difficulty by design, so a Hard
+  chip there silently did nothing. Capitals, Flags and Fun facts each carry
+  their own difficulty chip on the screen they open. The home page also
+  normalises `difficulty` to `all` before handing the filters to its cards, so a
+  stale `?difficulty=` cannot ride out of a screen that no longer shows it.
 - **Flag artwork is fetched a question ahead.** An `<img>` only starts loading
   once it is rendered, so every question's flags used to arrive a round-trip
   after the question — 160–500ms on an emulated Slow 4G link, worst in
