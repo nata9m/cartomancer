@@ -1,3 +1,5 @@
+import { flagSrc } from '@/lib/flag-art';
+
 /**
  * Real flag artwork, served from /flag-art (see scripts/vendor-flags.mjs).
  * Never emoji: they don't render at all on several of the target platforms and
@@ -21,7 +23,7 @@ export function Flag({
 }) {
   return (
     <img
-      src={`/flag-art/${isoCode.toLowerCase()}.svg`}
+      src={flagSrc(isoCode)}
       // Generic when no label is passed, which is how the answer tiles use it:
       // naming the country would give the answer away to a screen reader.
       alt={label ? `Flag of ${label}` : 'Flag'}

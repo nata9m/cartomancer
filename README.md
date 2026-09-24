@@ -414,6 +414,16 @@ involves:
   answer input unusable on an iPhone. The base `input`/`select` rule in
   `globals.css` carries it; the alternative, `maximum-scale=1` in the viewport,
   would also take pinch-zoom away from everyone.
+- **Flag artwork is fetched a question ahead.** An `<img>` only starts loading
+  once it is rendered, so every question's flags used to arrive a round-trip
+  after the question — 160–500ms on an emulated Slow 4G link, worst in
+  Country → flag, where four land at once and a few carry detailed coats of arms
+  (`ec.svg` is 177KB against a ~650-byte median). `lib/flag-art.ts` owns both the
+  URL and the warming, `QuizRunner` calls it one question ahead, and the two
+  places that start a round call it for question one, whose artwork nothing else
+  precedes. A bare `new Image()` rather than `<link rel="preload">`: same HTTP
+  cache, no element to hide or keep out of the accessibility tree, and no
+  "preloaded but not used" warnings when a player leaves a question open.
 - **A tapped multiple-choice option marks itself before the answer is checked.**
   The green/red reveal waits on a round-trip to the api, which on mobile data is
   long enough that an unmarked tile reads as a missed tap. `option--pending`
