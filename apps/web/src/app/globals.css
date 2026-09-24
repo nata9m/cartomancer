@@ -544,6 +544,18 @@ a {
      flag letterbox inside it instead. */
   min-height: 0;
   padding: 2px;
+  /* A size query container, so the flag below can be capped in cq units rather
+     than percentages. This box's height comes only from `aspect-ratio` on a
+     flex item, and WebKit treats such a height as indefinite: a percentage
+     resolved against it becomes `none`, so on iPhones the square flags
+     (Vatican City, Switzerland) drew at full tile width — and therefore taller
+     than the tile — and spilled over the row above. Container units resolve
+     against the used size, after layout, which is defined either way. */
+  container-type: size;
+  /* Belt and braces: whatever a future engine does with the sizing above, a
+     flag that escapes is clipped inside its own tile instead of drawn across
+     its neighbours. */
+  overflow: hidden;
 }
 
 .option-caption {
@@ -898,11 +910,18 @@ input.answer-input {
   height: auto;
 }
 
-/* Letterboxed inside the 4:3 tile: whichever of the two constraints binds
-   first wins, and the other stays auto so the ratio is the flag's own. */
+/* Letterboxed inside the 4:3 tile: whichever of the two caps binds first wins,
+   and the other stays auto so the ratio is the flag's own. In cq units, not
+   percentages — see the container-type note on .option-flag-box. */
 .option-flag-box .flag-fill {
+  /* The percentage pair first, for any engine that does not know cq units: it
+     is dropped by everything current, and is what Chromium and Firefox did
+     before. The cq pair then overrides it wherever container queries exist,
+     which is Safari 16 and up — the versions that need it. */
   max-width: 100%;
   max-height: 100%;
+  max-width: 100cqw;
+  max-height: 100cqh;
   width: auto;
   height: auto;
 }
