@@ -61,20 +61,32 @@ async function seedCountries(): Promise<void> {
 }
 
 async function seedFacts(): Promise<void> {
-  let written = 0;
+  const kept = new Set<number>();
   for (const entry of COUNTRY_FACTS) {
     const country = await prisma.country.findFirst({ where: { name: entry.countryName } });
     if (!country) {
       throw new Error(`Fact references unknown country "${entry.countryName}"`);
     }
-    await prisma.countryFact.upsert({
+    const row = await prisma.countryFact.upsert({
       where: { countryId_fact: { countryId: country.id, fact: entry.fact } },
       create: { countryId: country.id, fact: entry.fact, difficulty: entry.difficulty },
       update: { difficulty: entry.difficulty },
     });
-    written += 1;
+    kept.add(row.id);
   }
-  console.log(`  country_facts: ${written} rows`);
+
+  // Remove clues that were dropped from COUNTRY_FACTS (e.g. rewrites,
+  // deduplication). Without this, a pre-seeded database keeps the old rows
+  // and ends up with more clues than the canonical set, all carrying the
+  // migration's DEFAULT difficulty.
+  const orphaned = await prisma.countryFact.deleteMany({
+    where: { id: { notIn: [...kept] } },
+  });
+  if (orphaned.count > 0) {
+    console.log(`  country_facts: pruned ${orphaned.count} orphaned clue(s)`);
+  }
+
+  console.log(`  country_facts: ${kept.size} rows (canonical)`);
 }
 
 async function main(): Promise<void> {

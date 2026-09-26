@@ -6,7 +6,7 @@ import { FilterChips } from './FilterChips';
 import { IconArrowLeft } from './icons';
 import type { Filters } from '@/lib/filters';
 import { useSessionStarter } from '@/lib/use-start';
-import { addSeenFactIds, getSeenFactIds } from '@/lib/seen-facts';
+import { addSeenFactIds, getSeenFactIds, resetSeenFacts } from '@/lib/seen-facts';
 
 /**
  * Trivia mode picker: filter chips (Region / Difficulty / Count) and a single
@@ -24,7 +24,14 @@ export function TriviaModePicker({ filters }: { filters: Filters }) {
       const newIds = session.questions
         .map((q) => q.factId)
         .filter((id): id is number => id != null);
-      addSeenFactIds(filters, newIds);
+
+      if (session.questions.length < questionCount) {
+        // The pool for this filter combo is exhausted; reset so the next
+        // round starts a fresh cycle rather than replaying the tail.
+        resetSeenFacts(filters);
+      } else {
+        addSeenFactIds(filters, newIds);
+      }
     }
   }
 

@@ -35,7 +35,7 @@ const startSessionSchema = z.object({
   region: z.string().optional(),
   difficulty: z.string().optional(),
   questionCount: z.union([z.number(), z.string()]).optional(),
-  excludeFactIds: z.array(z.number().int().positive()).optional(),
+  excludeFactIds: z.array(z.number().int().positive()).max(300).optional(),
 });
 
 const answerSchema = z.object({
