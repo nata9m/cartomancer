@@ -89,6 +89,35 @@ describe('guest play', () => {
     assert.equal(response.statusCode, 403);
   });
 
+  it('excludes seen fact IDs for guest trivia rotation', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { quizTypeKey: 'trivia-fact2c-type', questionCount: 10, region: 'Europe' },
+    });
+    assert.equal(first.statusCode, 201);
+    const firstSession = first.json();
+    const firstFactIds = firstSession.questions.map((q: { factId: number }) => q.factId);
+    assert.equal(firstSession.isGuest, true);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: {
+        quizTypeKey: 'trivia-fact2c-type',
+        questionCount: 10,
+        region: 'Europe',
+        excludeFactIds: firstFactIds,
+      },
+    });
+    assert.equal(second.statusCode, 201);
+    const secondSession = second.json();
+    const secondFactIds = secondSession.questions.map((q: { factId: number }) => q.factId);
+
+    const overlap = firstFactIds.filter((id: number) => secondFactIds.includes(id));
+    assert.equal(overlap.length, 0, 'guest rotation should exclude previously seen fact IDs');
+  });
+
   it('exposes no summary for guests', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/summary' });
     assert.deepEqual(response.json(), { summary: null, isGuest: true });
@@ -278,6 +307,71 @@ describe('signed-in quiz session', () => {
       assert.ok(allowed.has(question.countryId));
       assert.ok(question.promptText.length > 0);
     }
+  });
+
+  it('returns factId on trivia questions for rotation tracking', async () => {
+    const session = await startSession('trivia-fact2c-type', { questionCount: 10 });
+    for (const question of session.questions) {
+      assert.equal(typeof question.factId, 'number', 'trivia questions must carry a factId');
+      assert.ok(question.factId > 0);
+    }
+  });
+
+  it('does not repeat clues across trivia rounds until exhausted', async () => {
+    const quizTypeKey = 'trivia-fact2c-type';
+    const first = await startSession(quizTypeKey, { region: 'Oceania', questionCount: 10 });
+    const firstFactIds = first.questions.map((q: { factId: number }) => q.factId);
+    assert.equal(new Set(firstFactIds).size, 10, 'all fact IDs should be unique in a round');
+
+    for (const question of first.questions) {
+      const country = await prisma.country.findUniqueOrThrow({ where: { id: question.countryId } });
+      await answer(first.id, question.sequence, country.name);
+    }
+    await finish(first.id);
+
+    const second = await startSession(quizTypeKey, { region: 'Oceania', questionCount: 10 });
+    const secondFactIds = second.questions.map((q: { factId: number }) => q.factId);
+
+    const overlap = firstFactIds.filter((id: number) => secondFactIds.includes(id));
+    assert.equal(
+      overlap.length,
+      0,
+      'second round should use different clues until the pool is exhausted',
+    );
+  });
+
+  it('filters trivia by clue difficulty, not country difficulty', async () => {
+    for (const difficulty of ['Easy', 'Medium', 'Hard'] as const) {
+      const session = await startSession('trivia-fact2c-type', { difficulty, questionCount: 10 });
+      assert.ok(session.questions.length > 0, `should have ${difficulty} trivia clues`);
+      const factIds = session.questions.map((q: { factId: number }) => q.factId);
+      const facts = await prisma.countryFact.findMany({
+        where: { id: { in: factIds } },
+        select: { difficulty: true },
+      });
+      assert.ok(
+        facts.every((f) => f.difficulty === difficulty),
+        `every clue in a ${difficulty} trivia round must be a ${difficulty} clue`,
+      );
+    }
+  });
+
+  it('stores factId on session_questions for rehydration', async () => {
+    const session = await startSession('trivia-fact2c-type', { questionCount: 5 });
+    const storedQuestions = await prisma.sessionQuestion.findMany({
+      where: { sessionId: session.id },
+      select: { factId: true },
+    });
+    assert.ok(
+      storedQuestions.every((q) => q.factId !== null),
+      'trivia session_questions should store fact_id',
+    );
+  });
+
+  it('never repeats a country inside one trivia session', async () => {
+    const session = await startSession('trivia-fact2c-type', { questionCount: 30 });
+    const ids = session.questions.map((q: { countryId: number }) => q.countryId);
+    assert.equal(new Set(ids).size, ids.length, 'every trivia question must be a different country');
   });
 
   it('never repeats a country inside one session', async () => {

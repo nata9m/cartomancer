@@ -44,14 +44,18 @@ model Country {
 
 /// Trivia clues. A country may have many; one is picked per trivia question.
 model CountryFact {
-  id        Int      @id @default(autoincrement())
-  countryId Int      @map("country_id")
-  fact      String
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id         Int      @id @default(autoincrement())
+  countryId  Int      @map("country_id")
+  fact       String
+  difficulty String   @default("Medium")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  country          Country           @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  sessionQuestions SessionQuestion[]
+  factProgress     FactProgress[]
 
   @@unique([countryId, fact])
+  @@index([difficulty])
   @@map("country_facts")
 }
 
@@ -71,6 +75,7 @@ model User {
   accounts       Account[]
   authSessions   Session[]
   progress       Progress[]
+  factProgress   FactProgress[]
   createdQuizzes QuizSession[]
   participations SessionParticipant[]
   answers        SessionAnswer[]
@@ -198,12 +203,29 @@ model SessionQuestion {
   sessionId String @map("session_id") @db.Uuid
   sequence  Int
   countryId Int    @map("country_id")
+  factId    Int?   @map("fact_id")
 
-  session QuizSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  country Country     @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  session QuizSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  country Country      @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  fact    CountryFact? @relation(fields: [factId], references: [id], onDelete: SetNull)
 
   @@id([sessionId, sequence])
   @@map("session_questions")
+}
+
+/// Per (user, fact) last-answered timestamp, driving the trivia rotation so
+/// no clue repeats until every matching clue has been seen.
+model FactProgress {
+  userId         String   @map("user_id") @db.Uuid
+  factId         Int      @map("fact_id")
+  lastAnsweredAt DateTime @default(now()) @map("last_answered_at") @db.Timestamptz(6)
+
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fact CountryFact @relation(fields: [factId], references: [id], onDelete: Cascade)
+
+  @@id([userId, factId])
+  @@index([userId, lastAnsweredAt])
+  @@map("fact_progress")
 }
 
 model SessionAnswer {

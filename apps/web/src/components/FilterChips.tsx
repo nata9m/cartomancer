@@ -2,12 +2,12 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { DIFFICULTIES, REGIONS } from '@cartomancer/shared';
+import { DIFFICULTIES, QUESTION_COUNT_OPTIONS, REGIONS } from '@cartomancer/shared';
 import { IconChevronDown } from './icons';
 import type { Filters } from '@/lib/filters';
 
 /**
- * Region and difficulty filters as the mockups' pill chips.
+ * Region, difficulty, and (optionally) question-count filters as pill chips.
  *
  * The selection lives in the URL, so a server-rendered quiz-type card can carry
  * it straight into a session start and a reloaded or shared link keeps it. The
@@ -20,9 +20,11 @@ import type { Filters } from '@/lib/filters';
 export function FilterChips({
   filters,
   showDifficulty = true,
+  showQuestionCount = false,
 }: {
   filters: Filters;
   showDifficulty?: boolean;
+  showQuestionCount?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -38,9 +40,14 @@ export function FilterChips({
     const params = new URLSearchParams();
     if (next.region !== 'all') params.set('region', next.region);
     if (next.difficulty !== 'all') params.set('difficulty', next.difficulty);
+    if (next.questionCount) params.set('count', next.questionCount);
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
+
+  const countLabel = local.questionCount
+    ? `${local.questionCount} questions`
+    : '20 questions';
 
   return (
     <div className="filter-chips">
@@ -74,6 +81,24 @@ export function FilterChips({
             {DIFFICULTIES.map((option) => (
               <option key={option} value={option}>
                 {option}
+              </option>
+            ))}
+          </select>
+        </span>
+      ) : null}
+
+      {showQuestionCount ? (
+        <span className={`chip${local.questionCount && local.questionCount !== '20' ? ' chip--active' : ''}`}>
+          {countLabel}
+          <IconChevronDown size={14} stroke={1.75} />
+          <select
+            aria-label="Number of questions"
+            value={local.questionCount || '20'}
+            onChange={(event) => update('questionCount', event.target.value)}
+          >
+            {QUESTION_COUNT_OPTIONS.map((n) => (
+              <option key={n} value={String(n)}>
+                {n} questions
               </option>
             ))}
           </select>

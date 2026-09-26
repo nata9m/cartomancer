@@ -69,8 +69,8 @@ async function seedFacts(): Promise<void> {
     }
     await prisma.countryFact.upsert({
       where: { countryId_fact: { countryId: country.id, fact: entry.fact } },
-      create: { countryId: country.id, fact: entry.fact },
-      update: {},
+      create: { countryId: country.id, fact: entry.fact, difficulty: entry.difficulty },
+      update: { difficulty: entry.difficulty },
     });
     written += 1;
   }

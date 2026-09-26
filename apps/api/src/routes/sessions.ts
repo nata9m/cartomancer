@@ -20,10 +20,13 @@ import {
   clampQuestionCount,
   expectedAnswerFor,
   loadFacts,
+  loadFactsByIds,
   parseDifficulty,
   parseRegion,
+  recordFactProgress,
   resolveQuizType,
   selectCountryIds,
+  selectFacts,
   summarize,
 } from '../lib/quiz.js';
 
@@ -32,6 +35,7 @@ const startSessionSchema = z.object({
   region: z.string().optional(),
   difficulty: z.string().optional(),
   questionCount: z.union([z.number(), z.string()]).optional(),
+  excludeFactIds: z.array(z.number().int().positive()).optional(),
 });
 
 const answerSchema = z.object({
@@ -76,26 +80,52 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     };
     const requestedCount = clampQuestionCount(body.questionCount);
 
-    const countryIds = await selectCountryIds(app.prisma, {
-      userId,
-      quizTypeId: quizTypeRow.id,
-      filters,
-      limit: requestedCount,
-      requireFacts: definition.category === 'trivia',
-    });
-    if (countryIds.length === 0) {
-      throw badRequest(
-        definition.category === 'trivia'
-          ? 'No countries with trivia clues match those filters yet — see TODO(trivia)'
-          : 'No countries match those filters',
-      );
+    let countryIds: number[];
+    let factsByCountryId: Map<number, string>;
+    let factIdsByCountryId: Map<number, number> | undefined;
+
+    if (definition.category === 'trivia') {
+      const selectedFacts = await selectFacts(app.prisma, {
+        userId,
+        filters,
+        limit: requestedCount,
+        excludeFactIds: body.excludeFactIds,
+      });
+
+      if (selectedFacts.length === 0) {
+        throw badRequest(
+          'No trivia clues match those filters. Try a different region or difficulty.',
+        );
+      }
+
+      countryIds = selectedFacts.map((f) => f.countryId);
+      factsByCountryId = new Map(selectedFacts.map((f) => [f.countryId, f.fact]));
+      factIdsByCountryId = new Map(selectedFacts.map((f) => [f.countryId, f.factId]));
+    } else {
+      countryIds = await selectCountryIds(app.prisma, {
+        userId,
+        quizTypeId: quizTypeRow.id,
+        filters,
+        limit: requestedCount,
+        requireFacts: false,
+      });
+
+      if (countryIds.length === 0) {
+        throw badRequest('No countries match those filters');
+      }
+
+      factsByCountryId = new Map();
     }
 
     const countries = await loadCountriesInOrder(app.prisma, countryIds);
     const distractorPool = await app.prisma.country.findMany();
-    const factsByCountryId =
-      definition.category === 'trivia' ? await loadFacts(app.prisma, countryIds) : new Map();
-    const questions = buildQuestions({ definition, countries, distractorPool, factsByCountryId });
+    const questions = buildQuestions({
+      definition,
+      countries,
+      distractorPool,
+      factsByCountryId,
+      factIdsByCountryId,
+    });
 
     if (userId === null) {
       const payload: QuizSessionPayload = {
@@ -124,6 +154,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           create: questions.map((question) => ({
             sequence: question.sequence,
             countryId: question.countryId,
+            factId: question.factId ?? null,
           })),
         },
       },
@@ -143,9 +174,8 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   /**
    * Rehydrates a persisted session (a refresh mid-quiz, or a direct link).
-   * Options are regenerated rather than stored: they are presentation, and
-   * regenerating them keeps `session_questions` the single source of truth for
-   * what was asked.
+   * For trivia, the stored fact_id ensures the same clue is shown, rather than
+   * picking a random one.
    */
   app.get('/api/sessions/:id', async (request) => {
     const { userId } = request.actor;
@@ -158,18 +188,37 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       session.questions.map((q) => q.countryId),
     );
     const distractorPool = await app.prisma.country.findMany();
-    const factsByCountryId =
-      definition.category === 'trivia'
-        ? await loadFacts(
-            app.prisma,
-            session.questions.map((q) => q.countryId),
-          )
-        : new Map();
+
+    let factsByCountryId: Map<number, string>;
+    let factIdsByCountryId: Map<number, number> | undefined;
+
+    if (definition.category === 'trivia') {
+      const storedFactIds = session.questions
+        .map((q) => q.factId)
+        .filter((id): id is number => id != null);
+
+      if (storedFactIds.length > 0) {
+        const loaded = await loadFactsByIds(app.prisma, storedFactIds);
+        factsByCountryId = loaded.factsByCountryId;
+        factIdsByCountryId = loaded.factIdsByCountryId;
+      } else {
+        const loaded = await loadFacts(
+          app.prisma,
+          session.questions.map((q) => q.countryId),
+        );
+        factsByCountryId = loaded.factsByCountryId;
+        factIdsByCountryId = loaded.factIdsByCountryId;
+      }
+    } else {
+      factsByCountryId = new Map();
+    }
+
     const questions: QuizQuestion[] = buildQuestions({
       definition,
       countries,
       distractorPool,
       factsByCountryId,
+      factIdsByCountryId,
     });
 
     const answered = await app.prisma.sessionAnswer.findMany({
@@ -193,7 +242,8 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
   /**
    * Submits an answer for a persisted session: checks it, records it, and
-   * updates the streak/learned state.
+   * updates the streak/learned state. For trivia, also updates fact_progress
+   * so the clue rotates.
    */
   app.post('/api/sessions/:id/answers', async (request) => {
     const { userId } = request.actor;
@@ -219,7 +269,6 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       },
     });
     if (already) {
-      // Re-answering would let a streak be farmed off one question.
       throw conflict(`Question ${body.sequence} has already been answered`);
     }
 
@@ -248,6 +297,11 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       wasCorrect: outcome.isMatch,
       answeredAt,
     });
+
+    if (definition.category === 'trivia' && question.factId) {
+      await recordFactProgress(app.prisma, userId, question.factId, answeredAt);
+    }
+
     await syncParticipantScore(app.prisma, session.id, userId);
 
     const result: AnswerResult = {

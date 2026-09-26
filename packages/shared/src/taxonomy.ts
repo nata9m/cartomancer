@@ -181,8 +181,8 @@ export const CATEGORY_CARDS: readonly {
   },
 ] as const;
 
-/** Question-count options offered by the trivia quiz (and reused elsewhere). */
-export const QUESTION_COUNT_OPTIONS = [10, 20, 30] as const;
+/** Question-count options offered by the trivia quiz chip (and reused elsewhere). */
+export const QUESTION_COUNT_OPTIONS = [10, 20, 30, 50] as const;
 export const DEFAULT_QUESTION_COUNT = 20;
 
 /** 3 correct answers in a row marks a country learned… */
