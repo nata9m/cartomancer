@@ -95,14 +95,11 @@ export function parseDifficulty(value: unknown): DifficultyFilter {
 }
 
 /**
- * Builds a session's question set.
+ * Builds a session's question set for non-trivia categories.
  *
  * Signed in: one shared "last seen" pool per (user, quiz type), ordered by
  * `progress.last_answered_at ASC NULLS FIRST` so never-seen countries come
- * first and the oldest-seen cycle back round after that — across every filter
- * combination, not per filter. Ties (in particular the whole never-seen block)
- * are shuffled, which is what makes the cycle feel like a reshuffle rather than
- * a fixed carousel.
+ * first and the oldest-seen cycle back round after that.
  *
  * Guest: no rotation memory exists, so the pick is simply random.
  */
@@ -160,6 +157,111 @@ export async function selectCountryIds(
   return rows.map((r) => r.id);
 }
 
+// ─── Trivia-specific fact selection ──────────────────────────────────────────
+
+export interface SelectedFact {
+  factId: number;
+  countryId: number;
+  fact: string;
+}
+
+/**
+ * Selects trivia clues with per-clue rotation, filtering on the clue's own
+ * difficulty (not the country's).
+ *
+ * Signed in: clues ordered by `fact_progress.last_answered_at ASC NULLS FIRST`
+ * so never-seen clues come first. The cycle restarts only after every matching
+ * clue has been answered.
+ *
+ * Guest: the caller passes `excludeFactIds` (from localStorage); excluded facts
+ * are skipped. When the exclude list covers everything, the API returns whatever
+ * is available (the client resets the list on short rounds).
+ *
+ * In both cases, at most one clue per country is selected in a round.
+ */
+export async function selectFacts(
+  prisma: PrismaClient,
+  options: {
+    userId: string | null;
+    filters: SelectionFilters;
+    limit: number;
+    excludeFactIds?: number[];
+  },
+): Promise<SelectedFact[]> {
+  const { userId, filters, limit, excludeFactIds } = options;
+  const region = filters.region === ALL_FILTER ? null : filters.region;
+  const difficulty = filters.difficulty === ALL_FILTER ? null : filters.difficulty;
+
+  const overFetch = Math.min(limit * 4, 600);
+
+  let rows: { fact_id: number; country_id: number; fact: string }[];
+
+  if (userId !== null) {
+    rows = await prisma.$queryRawUnsafe<typeof rows>(
+      `SELECT f.id AS fact_id, f.country_id, f.fact
+         FROM country_facts f
+         JOIN countries c ON c.id = f.country_id
+         LEFT JOIN fact_progress fp ON fp.fact_id = f.id AND fp.user_id = $3::uuid
+        WHERE ($1::text IS NULL OR c.region = $1)
+          AND ($2::text IS NULL OR f.difficulty = $2)
+        ORDER BY fp.last_answered_at ASC NULLS FIRST, random()
+        LIMIT $4`,
+      region,
+      difficulty,
+      userId,
+      overFetch,
+    );
+  } else {
+    const excludeIds = excludeFactIds?.length ? excludeFactIds : [0];
+    rows = await prisma.$queryRawUnsafe<typeof rows>(
+      `SELECT f.id AS fact_id, f.country_id, f.fact
+         FROM country_facts f
+         JOIN countries c ON c.id = f.country_id
+        WHERE ($1::text IS NULL OR c.region = $1)
+          AND ($2::text IS NULL OR f.difficulty = $2)
+          AND f.id != ALL($4::int[])
+        ORDER BY random()
+        LIMIT $3`,
+      region,
+      difficulty,
+      overFetch,
+      excludeIds,
+    );
+
+    if (rows.length < limit && excludeFactIds?.length) {
+      const fallback = await prisma.$queryRawUnsafe<typeof rows>(
+        `SELECT f.id AS fact_id, f.country_id, f.fact
+           FROM country_facts f
+           JOIN countries c ON c.id = f.country_id
+          WHERE ($1::text IS NULL OR c.region = $1)
+            AND ($2::text IS NULL OR f.difficulty = $2)
+          ORDER BY random()
+          LIMIT $3`,
+        region,
+        difficulty,
+        overFetch,
+      );
+      const existingIds = new Set(rows.map((r) => r.fact_id));
+      for (const r of fallback) {
+        if (!existingIds.has(r.fact_id)) {
+          rows.push(r);
+          existingIds.add(r.fact_id);
+        }
+      }
+    }
+  }
+
+  const selected: SelectedFact[] = [];
+  const seenCountries = new Set<number>();
+  for (const row of rows) {
+    if (seenCountries.has(row.country_id)) continue;
+    seenCountries.add(row.country_id);
+    selected.push({ factId: row.fact_id, countryId: row.country_id, fact: row.fact });
+    if (selected.length >= limit) break;
+  }
+  return selected;
+}
+
 export function clampQuestionCount(requested: unknown): number {
   if (requested === undefined || requested === null) {
     return DEFAULT_QUESTION_COUNT;
@@ -177,12 +279,14 @@ interface QuestionBuildInput {
   countries: Country[];
   /** Candidate pool for multiple-choice distractors. */
   distractorPool: Country[];
-  /** country id → one clue, for trivia. */
+  /** country id → one clue text, for trivia. */
   factsByCountryId: Map<number, string>;
+  /** country id → fact database id, for trivia rotation tracking. */
+  factIdsByCountryId?: Map<number, number>;
 }
 
 export function buildQuestions(input: QuestionBuildInput): QuizQuestion[] {
-  const { definition, countries, distractorPool, factsByCountryId } = input;
+  const { definition, countries, distractorPool, factsByCountryId, factIdsByCountryId } = input;
 
   return countries.map((country, index) => {
     const question: QuizQuestion = {
@@ -190,6 +294,12 @@ export function buildQuestions(input: QuestionBuildInput): QuizQuestion[] {
       countryId: country.id,
       ...promptFor(definition, country, factsByCountryId),
     };
+    if (factIdsByCountryId) {
+      const fid = factIdsByCountryId.get(country.id);
+      if (fid !== undefined) {
+        question.factId = fid;
+      }
+    }
     if (definition.format === 'multiple_choice') {
       question.options = buildOptions(definition, country, distractorPool);
     }
@@ -285,29 +395,69 @@ export function shuffle<T>(items: readonly T[]): T[] {
 export async function loadFacts(
   prisma: PrismaClient,
   countryIds: number[],
-): Promise<Map<number, string>> {
+): Promise<{ factsByCountryId: Map<number, string>; factIdsByCountryId: Map<number, number> }> {
   if (countryIds.length === 0) {
-    return new Map();
+    return { factsByCountryId: new Map(), factIdsByCountryId: new Map() };
   }
   const rows = await prisma.countryFact.findMany({
     where: { countryId: { in: countryIds } },
-    select: { countryId: true, fact: true },
+    select: { id: true, countryId: true, fact: true },
   });
-  const grouped = new Map<number, string[]>();
+  const grouped = new Map<number, { id: number; fact: string }[]>();
   for (const row of rows) {
     const existing = grouped.get(row.countryId);
     if (existing) {
-      existing.push(row.fact);
+      existing.push({ id: row.id, fact: row.fact });
     } else {
-      grouped.set(row.countryId, [row.fact]);
+      grouped.set(row.countryId, [{ id: row.id, fact: row.fact }]);
     }
   }
-  const picked = new Map<number, string>();
+  const factsByCountryId = new Map<number, string>();
+  const factIdsByCountryId = new Map<number, number>();
   for (const [countryId, facts] of grouped) {
     const choice = facts[Math.floor(Math.random() * facts.length)];
     if (choice !== undefined) {
-      picked.set(countryId, choice);
+      factsByCountryId.set(countryId, choice.fact);
+      factIdsByCountryId.set(countryId, choice.id);
     }
   }
-  return picked;
+  return { factsByCountryId, factIdsByCountryId };
+}
+
+/** Loads specific facts by their IDs (for session rehydration). */
+export async function loadFactsByIds(
+  prisma: PrismaClient,
+  factIds: number[],
+): Promise<{ factsByCountryId: Map<number, string>; factIdsByCountryId: Map<number, number> }> {
+  if (factIds.length === 0) {
+    return { factsByCountryId: new Map(), factIdsByCountryId: new Map() };
+  }
+  const rows = await prisma.countryFact.findMany({
+    where: { id: { in: factIds } },
+    select: { id: true, countryId: true, fact: true },
+  });
+  const factsByCountryId = new Map<number, string>();
+  const factIdsByCountryId = new Map<number, number>();
+  for (const row of rows) {
+    factsByCountryId.set(row.countryId, row.fact);
+    factIdsByCountryId.set(row.countryId, row.id);
+  }
+  return { factsByCountryId, factIdsByCountryId };
+}
+
+/**
+ * Records a fact as answered in the per-fact rotation table.
+ * Only called for signed-in trivia sessions.
+ */
+export async function recordFactProgress(
+  prisma: PrismaClient,
+  userId: string,
+  factId: number,
+  answeredAt: Date,
+): Promise<void> {
+  await prisma.factProgress.upsert({
+    where: { userId_factId: { userId, factId } },
+    create: { userId, factId, lastAnsweredAt: answeredAt },
+    update: { lastAnsweredAt: answeredAt },
+  });
 }
