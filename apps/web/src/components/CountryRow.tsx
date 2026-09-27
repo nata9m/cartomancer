@@ -1,5 +1,7 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Flag } from './Flag';
+import { IconChevronRight } from './icons';
 
 /**
  * One row of a country list: flag, name, and whatever the screen puts after it.
@@ -8,6 +10,10 @@ import { Flag } from './Flag';
  * shell and different trailing content — a capital, a streak, both, or nothing.
  * Hence `children` rather than a `detail` prop: the alternative was a union of
  * every combination either screen might want on the right.
+ *
+ * With `href` the row is a link to a country's detail page and grows a chevron
+ * to say so (#38); without one it is the plain row the learned lists use, where
+ * there is nothing to open.
  *
  * The flag is lazy in both places by design: these are 195-row lists where a
  * handful are on screen, which is the case lib/flag-art's warming is not for.
@@ -18,17 +24,29 @@ import { Flag } from './Flag';
 export function CountryRow({
   isoCode,
   name,
+  href,
   children,
 }: {
   isoCode: string;
   name: string;
+  /** Makes the row a link, with a chevron to match the app's other tap targets. */
+  href?: string;
   children?: ReactNode;
 }) {
-  return (
-    <div className="missed-row country-row">
+  const body = (
+    <>
       <Flag isoCode={isoCode} label={name} variant="inline" lazy />
       <span>{name}</span>
       {children}
-    </div>
+      {href ? <IconChevronRight className="country-row__chevron" size={16} stroke={1.75} /> : null}
+    </>
+  );
+
+  return href ? (
+    <Link className="missed-row country-row country-row--link" href={href}>
+      {body}
+    </Link>
+  ) : (
+    <div className="missed-row country-row">{body}</div>
   );
 }
