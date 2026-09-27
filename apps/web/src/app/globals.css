@@ -941,6 +941,33 @@ input.answer-input {
   text-underline-offset: 2px;
 }
 
+/* The single Play button on a start screen that has only one mode (Fun facts,
+   Countries). The class arrived with #16's picker but had no rule, so Play
+   rendered as an ordinary card and read as one of several choices rather than
+   the action. Takes .button-primary's inversion, since it is the same job. */
+.card--primary {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--surface-2);
+}
+
+.card--primary:hover {
+  background: var(--text-primary);
+}
+
+/* The description is muted against a card; against the inverted fill it has to
+   lift, or it reads as disabled. */
+.card--primary .card-description {
+  color: var(--surface-1);
+  opacity: 0.75;
+}
+
+/* Starting: the button is disabled, and the generic 0.45 would make it look
+   broken rather than busy. */
+.card--primary:disabled {
+  opacity: 0.7;
+}
+
 /* ── Country of the day ─────────────────────────────────────────────────── */
 
 /* A .card, but taller and top-aligned: the fact line wraps to two or three

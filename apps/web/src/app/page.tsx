@@ -1,14 +1,12 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ProgressSummary } from '@cartomancer/shared';
-import { FilterChips } from '@/components/FilterChips';
 import { HomeQuizCards } from '@/components/HomeQuizCards';
 import { CountryOfTheDay } from '@/components/CountryOfTheDay';
 import { SignInBanner, StatsStrip, StreakBar } from '@/components/HomeStats';
 import { IconArrowRight } from '@/components/icons';
 import { isGuest } from '@/lib/guest';
 import { apiFetch, currentUserId } from '@/lib/server-api';
-import { ALL, filtersToQuery, readFilters } from '@/lib/filters';
 
 // Progress is per-user live data; never prerender or cache it.
 export const dynamic = 'force-dynamic';
@@ -17,25 +15,13 @@ export const dynamic = 'force-dynamic';
 const DEV_COMMIT = 'dev';
 const REPO_URL = 'https://github.com/nata9m/cartomancer';
 
-export default async function HomePage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+export default async function HomePage() {
   const userId = await currentUserId();
 
   // Neither signed in nor an explicit guest: the login screen is the entry point.
   if (!userId && !(await isGuest())) {
     redirect('/login');
   }
-
-  // Difficulty is dropped here rather than merely hidden. Countries — the one
-  // game this screen starts directly — ignores it by design (recall is
-  // region-only, see routes/recall.ts), and the other three cards open screens
-  // that carry their own difficulty chip. Normalising means a stale
-  // ?difficulty=Hard in the URL can't ride into Capitals or Flags invisibly,
-  // where it would filter a round nothing on this screen said it would.
-  const filters = { ...readFilters(await searchParams), difficulty: ALL };
 
   // Which build is live, so a bug report from a phone says so without anyone
   // having to go and look. The runtime image has no .git, so the workflow bakes
@@ -45,9 +31,6 @@ export default async function HomePage({
   // force-dynamic, and a NEXT_PUBLIC_ value would have to be known before
   // `next build`, which is a layer the SHA must not invalidate.
   const commit = process.env.GIT_SHA || DEV_COMMIT;
-
-  const registerQuery = filtersToQuery(filters);
-  const registerHref = registerQuery ? `/countries?${registerQuery}` : '/countries';
 
   let summary: ProgressSummary | null = null;
   if (userId) {
@@ -75,14 +58,15 @@ export default async function HomePage({
 
       <CountryOfTheDay />
 
-      <FilterChips filters={filters} showDifficulty={false} />
-      <HomeQuizCards filters={filters} />
+      {/* No filter chips here any more (#28). Every card opens a screen that
+          owns its own, so a chip on this one either duplicated theirs or, for
+          the three that ignored it, promised something it did not do. */}
+      <HomeQuizCards />
 
       {/* Not a fifth card: the four above start a round, this one only looks
           something up, and giving it the same weight would invite a tap from
-          someone who meant to play. It carries the region chip like the cards
-          do, so a Europe filter opens the register already narrowed. */}
-      <Link className="link-row" href={registerHref}>
+          someone who meant to play. */}
+      <Link className="link-row" href="/countries">
         Browse all countries
         <IconArrowRight size={15} stroke={1.9} />
       </Link>
