@@ -18,10 +18,15 @@ export default async function CountriesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const filters = readFilters(await searchParams);
+  const params = await searchParams;
+  const filters = readFilters(params);
+  // ?q= pre-fills the search box, which is how the home screen's Country of
+  // the day card opens a country here. Still editable — it seeds the input
+  // rather than locking the list.
+  const initialQuery = Array.isArray(params.q) ? (params.q[0] ?? '') : (params.q ?? '');
   const { countries } = await apiFetch<{ countries: CountryRef[]; total: number }>(
     '/api/countries?region=all',
   );
 
-  return <CountryRegister countries={countries} filters={filters} />;
+  return <CountryRegister countries={countries} filters={filters} initialQuery={initialQuery} />;
 }
