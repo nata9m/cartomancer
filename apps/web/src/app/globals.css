@@ -1197,12 +1197,6 @@ input.register-search {
   height: auto;
 }
 
-.detail-description {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
 /* Label left, value right, one pair per line: the same list shape as the missed
    rows, which is already the app's way of saying "this, then that". */
 .fact-list {

@@ -466,6 +466,19 @@ involves:
   even when the region chip narrows the sections, because that is the number you
   tapped. A guest gets 403 rather than an empty list: an empty list would say
   "you have learned nothing", which is a different thing.
+- **A country's page carries five things, and only two of them are fetched.**
+  `/countries/:isoCode` (#38) shows the flag, the capital, the population, the
+  language(s) and the country's own trivia clues. Capital, flag and clues are
+  already in `countries.ts` and `facts.ts`, so the generated
+  `country-details.ts` holds just population (World Bank, via
+  `datasets/population`, CC BY 4.0) and languages (mledoze/countries, ODbL) —
+  both credited on the page, as both licences ask. It is committed rather than
+  fetched per request, so a page is instant, works whether or not either service
+  is up, and a changed figure shows in a PR diff; refresh it with
+  `node packages/shared/scripts/fetch-country-details.mjs`, which fails loudly
+  rather than writing a hole. Area, currency and calling code are a line each in
+  that script if they are ever wanted — the page is deliberately short, because
+  the register is for looking a country up, not for reading an encyclopedia.
 - **A missed row is the question and the answer, not the country twice.**
   `correctAnswer` IS the country name for every `*_to_country` quiz, so a
   results row built from the country alone read "Brazil — Brazil" and never
