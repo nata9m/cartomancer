@@ -9,6 +9,20 @@ const DOMAIN_COLUMN: Record<AnswerDomain, 'name' | 'capital'> = {
   capital: 'capital',
 };
 
+/**
+ * The alias column that belongs to each domain (#35).
+ *
+ * These have to move together with DOMAIN_COLUMN. When one array held every
+ * alias and this query consulted all of it whichever way the question was
+ * asked, `Tel Aviv` was accepted as the capital of Israel and `Cape Town` as
+ * the name of a country — the matcher was forgiving in the one direction where
+ * forgiveness teaches something false.
+ */
+const DOMAIN_ALIAS_COLUMN: Record<AnswerDomain, 'name_aliases' | 'capital_aliases'> = {
+  country: 'name_aliases',
+  capital: 'capital_aliases',
+};
+
 export interface MatchCandidate {
   id: number;
   name: string;
@@ -37,7 +51,9 @@ interface RankRow {
 /**
  * Ranks every country against a typed answer: exact (normalised) hits first,
  * then by trigram similarity. Both the canonical column and the hand-seeded
- * aliases are considered.
+ * aliases for THIS domain are considered — a capital question is judged against
+ * the capital and its aliases, a country question against the name and its
+ * aliases (#35).
  *
  * Restricting to a candidate pool (a region, or the countries in a recall
  * session) is deliberate for recall — a guess should be judged against the
@@ -56,22 +72,23 @@ export async function rankCandidates(
     return [];
   }
   const column = DOMAIN_COLUMN[domain];
+  const aliasColumn = DOMAIN_ALIAS_COLUMN[domain];
   const restrict = restrictToCountryIds && restrictToCountryIds.length > 0;
 
-  // `column` comes from the whitelist above, never from request input; the
-  // answer itself and the id list are bound parameters.
+  // Both column names come from the whitelists above, never from request input;
+  // the answer itself and the id list are bound parameters.
   const sql = `
     WITH input AS (SELECT cartomancer_normalize($1) AS q)
     SELECT c.id,
            c.name,
            (cartomancer_normalize(c."${column}") = input.q
-            OR EXISTS (SELECT 1 FROM unnest(c.aliases) a
+            OR EXISTS (SELECT 1 FROM unnest(c."${aliasColumn}") a
                        WHERE cartomancer_normalize(a) = input.q)) AS exact,
            (cartomancer_normalize(c."${column}") = input.q) AS canonical,
            GREATEST(
              similarity(cartomancer_normalize(c."${column}"), input.q),
              COALESCE((SELECT MAX(similarity(cartomancer_normalize(a), input.q))
-                       FROM unnest(c.aliases) a), 0)
+                       FROM unnest(c."${aliasColumn}") a), 0)
            )::float8 AS score
     FROM countries c, input
     ${restrict ? 'WHERE c.id = ANY($2::int[])' : ''}

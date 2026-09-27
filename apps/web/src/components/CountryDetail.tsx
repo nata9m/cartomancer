@@ -1,11 +1,16 @@
 import Link from 'next/link';
-import type { CountryDetail as CountryDetailData, CountrySeed } from '@cartomancer/shared';
+import {
+  normalizeAnswer,
+  type CountryDetail as CountryDetailData,
+  type CountrySeed,
+} from '@cartomancer/shared';
 import { Flag } from './Flag';
 import { IconArrowLeft } from './icons';
 
 /**
- * One country, at rest: the flag large enough to look at, its capital, how many
- * people live there, what they speak, and the country's own trivia clues (#38).
+ * One country, at rest: the flag large enough to look at, its capital and any
+ * other name it or its capital goes by, how many people live there, what they
+ * speak, and the country's own trivia clues (#38, #35).
  *
  * Deliberately five things. The register is for looking a country up, not for
  * reading an encyclopedia entry, and every extra row is one more thing to scan
@@ -28,8 +33,27 @@ export function CountryDetail({
   /** Back to the register as it was left — see the note in the page. */
   backHref: string;
 }) {
+  // Both alias lists are printable since #35, each saying only what it means:
+  // "also known as" for another name of the country, "also" after the capital
+  // for a second seat of government or another spelling of the same city. What
+  // used to make this impossible — one column that also held Istanbul and Tel
+  // Aviv — is now simply not accepted anywhere.
+  const nameAliases = worthShowing(country.name, country.nameAliases);
+  const capitalAliases = worthShowing(country.capital, country.capitalAliases);
   const rows: [string, string][] = [
-    ['Capital', country.capital],
+    [
+      // One label whatever follows it: the column holds a second seat of
+      // government and another name for the same city alike, and "also" is the
+      // one word true of both. "Capitals" would claim Ciudad de México and
+      // CDMX are two of them.
+      'Capital',
+      capitalAliases.length > 0
+        ? `${country.capital} · also ${capitalAliases.join(', ')}`
+        : country.capital,
+    ],
+    ...(nameAliases.length > 0
+      ? ([['Also known as', nameAliases.join(', ')]] as [string, string][])
+      : []),
     ['Population', formatPopulation(detail.population, detail.populationYear)],
     [detail.languages.length > 1 ? 'Languages' : 'Language', detail.languages.join(', ')],
   ];
@@ -84,6 +108,28 @@ export function CountryDetail({
       </p>
     </main>
   );
+}
+
+/**
+ * The aliases that say something the canonical value does not.
+ *
+ * Both lists carry entries that exist only for the matcher: `Turkiye` beside
+ * `Türkiye`, `Yaounde` beside `Yaoundé`, `Sao Tome and Principe`. Answers are
+ * matched with accents and punctuation stripped, so those are already accepted
+ * by the canonical value alone — printing them would just be the same word
+ * twice. `Praha`, `Cape Town` and `Nur-Sultan` survive this, which is the
+ * point.
+ */
+function worthShowing(canonical: string, aliases: string[] | undefined): string[] {
+  const seen = new Set([normalizeAnswer(canonical)]);
+  return (aliases ?? []).filter((alias) => {
+    const key = normalizeAnswer(alias);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 /** "212 million (2024)" reads better than nine digits, and the year matters. */

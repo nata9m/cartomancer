@@ -2,7 +2,8 @@
  * Fuzzy-matching sanity check and tuning aid.
  *
  * 1. Asserts `cartomancer_normalize()` (migration 0002) and `normalizeAnswer()`
- *    (@cartomancer/shared) agree on every seeded name, capital and alias — the
+ *    (@cartomancer/shared) agree on every seeded name, capital and alias, of
+ *    all three kinds (#35) — the
  *    exact-match pass runs in SQL and the recall de-duplication runs in TS, so
  *    a divergence would show up as answers accepted in one place and not the
  *    other.
@@ -38,7 +39,11 @@ async function verifyNormalisation(): Promise<number> {
   for (const country of COUNTRIES) {
     values.add(country.name);
     values.add(country.capital);
-    for (const alias of country.aliases) {
+    for (const alias of [
+      ...(country.nameAliases ?? []),
+      ...(country.capitalAliases ?? []),
+      ...(country.searchAliases ?? []),
+    ]) {
       values.add(alias);
     }
   }
@@ -56,6 +61,11 @@ async function verifyNormalisation(): Promise<number> {
   return mismatches;
 }
 
+/**
+ * The probes are all country guesses, so this reads name_aliases — the same
+ * column rankCandidates uses for the country domain (#35). A capital-domain
+ * ranking would read capital_aliases instead.
+ */
 async function printRankings(): Promise<void> {
   console.log(`\nranked candidates (threshold ${FUZZY_MATCH_THRESHOLD}):`);
   for (const guess of PROBES) {
@@ -65,10 +75,10 @@ async function printRankings(): Promise<void> {
              GREATEST(
                similarity(cartomancer_normalize(c.name), input.q),
                COALESCE((SELECT MAX(similarity(cartomancer_normalize(a), input.q))
-                         FROM unnest(c.aliases) a), 0)
+                         FROM unnest(c.name_aliases) a), 0)
              ) AS score,
              (cartomancer_normalize(c.name) = input.q
-              OR EXISTS (SELECT 1 FROM unnest(c.aliases) a
+              OR EXISTS (SELECT 1 FROM unnest(c.name_aliases) a
                          WHERE cartomancer_normalize(a) = input.q)) AS exact
       FROM countries c, input
       ORDER BY exact DESC, score DESC

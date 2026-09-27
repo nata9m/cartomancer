@@ -25,7 +25,7 @@ export async function registerCatalogRoutes(app: FastifyInstance): Promise<void>
   /**
    * Country reference data. Used by the guest recall results screen, which has
    * to list the countries that weren't recalled without anything persisted, and
-   * by the /countries register, which searches over the aliases.
+   * by the /countries register, which searches over all three alias lists.
    */
   app.get('/api/countries', async (request) => {
     const query = request.query as { region?: string };
@@ -40,7 +40,9 @@ export async function registerCatalogRoutes(app: FastifyInstance): Promise<void>
         capital: true,
         region: true,
         difficulty: true,
-        aliases: true,
+        nameAliases: true,
+        capitalAliases: true,
+        searchAliases: true,
       },
     });
     const countries: CountryRef[] = rows.map((row) => ({
@@ -50,7 +52,9 @@ export async function registerCatalogRoutes(app: FastifyInstance): Promise<void>
       capital: row.capital,
       region: row.region as Region,
       difficulty: row.difficulty as Difficulty,
-      aliases: row.aliases,
+      nameAliases: row.nameAliases,
+      capitalAliases: row.capitalAliases,
+      searchAliases: row.searchAliases,
     }));
     return { countries, total: countries.length };
   });
