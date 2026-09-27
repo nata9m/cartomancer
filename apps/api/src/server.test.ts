@@ -340,6 +340,66 @@ describe('signed-in quiz session', () => {
     );
   });
 
+  it('serves fun facts as multiple choice: a clue and four country names', async () => {
+    const session = await startSession('trivia-fact2c-mc', { questionCount: 5 });
+    assert.equal(session.questions.length, 5);
+    for (const question of session.questions) {
+      const country = await prisma.country.findUniqueOrThrow({
+        where: { id: question.countryId },
+      });
+      assert.ok(question.promptText.length > 0, 'the clue is the prompt');
+      assert.equal(question.options.length, 4);
+      const labels = question.options.map((o: { label: string }) => o.label);
+      assert.equal(new Set(labels).size, 4, 'four distinct options');
+      assert.ok(labels.includes(country.name), `${country.name} should be among its own options`);
+      // Country names, not flags: only flags-c2flag-mc puts art on an option.
+      for (const option of question.options) {
+        assert.equal(option.isoCode, undefined);
+      }
+      assert.equal(typeof question.factId, 'number');
+    }
+  });
+
+  it('answers a fun-fact multiple choice round by picking the country', async () => {
+    const session = await startSession('trivia-fact2c-mc', { questionCount: 3 });
+    for (const question of session.questions) {
+      const country = await prisma.country.findUniqueOrThrow({
+        where: { id: question.countryId },
+      });
+      const result = await answer(session.id, question.sequence, country.name);
+      assert.equal(result.wasCorrect, true, `${question.promptText} → ${country.name}`);
+    }
+    const results = await finish(session.id);
+    assert.equal(results.score, 3);
+  });
+
+  it('rotates clues across both fun-fact modes, not per mode', async () => {
+    // The two modes are one game asked two ways (#42), so a clue met in
+    // multiple choice must not come back as the next type-in question.
+    const first = await startSession('trivia-fact2c-mc', {
+      region: 'Oceania',
+      questionCount: 5,
+    });
+    const firstFactIds = first.questions.map((q: { factId: number }) => q.factId);
+    for (const question of first.questions) {
+      const country = await prisma.country.findUniqueOrThrow({
+        where: { id: question.countryId },
+      });
+      await answer(first.id, question.sequence, country.name);
+    }
+    await finish(first.id);
+
+    const second = await startSession('trivia-fact2c-type', {
+      region: 'Oceania',
+      questionCount: 5,
+    });
+    assert.ok(second.questions.length > 0);
+    const overlap = second.questions
+      .map((q: { factId: number }) => q.factId)
+      .filter((id: number) => firstFactIds.includes(id));
+    assert.equal(overlap.length, 0, 'a clue seen in one mode is seen in the other');
+  });
+
   it('filters trivia by clue difficulty, not country difficulty', async () => {
     for (const difficulty of ['Easy', 'Medium', 'Hard'] as const) {
       const session = await startSession('trivia-fact2c-type', { difficulty, questionCount: 10 });
@@ -715,7 +775,7 @@ describe('catalog', () => {
   it('serves the quiz types from the database', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/quiz-types' });
     const body = response.json();
-    assert.equal(body.quizTypes.length, 9);
+    assert.equal(body.quizTypes.length, 10);
     assert.equal(body.unmapped, 0);
   });
 
