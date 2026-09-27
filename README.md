@@ -425,6 +425,18 @@ involves:
   answer input unusable on an iPhone. The base `input`/`select` rule in
   `globals.css` carries it; the alternative, `maximum-scale=1` in the viewport,
   would also take pinch-zoom away from everyone.
+- **The country register sorts itself, and searches aliases without showing
+  them.** `/countries` fetches all 195 rows once and does every filter in the
+  browser, so the search box never waits on a round trip. Two things there are
+  deliberate. It re-sorts by `localeCompare` instead of trusting the api's
+  `ORDER BY name`: Postgres collates by the database's own locale, which on this
+  cluster puts Côte d'Ivoire *after* Czechia — invisible to the quizzes, which
+  never show a list in order, and plainly wrong in an A-Z register. And it
+  searches over `aliases` but never prints them, because that column does double
+  duty (see the alias bullet below): matching "Cape Town" to South Africa is
+  exactly what a lookup box should do, while listing it as another *name* for
+  South Africa would be wrong. Splitting the column would be the fix if the
+  display is ever wanted.
 - **The home screen filters by region only.** Countries — recall — is the one
   game it starts directly, and recall ignores difficulty by design, so a Hard
   chip there silently did nothing. Capitals, Flags and Fun facts each carry

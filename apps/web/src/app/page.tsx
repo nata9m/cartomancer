@@ -1,11 +1,13 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ProgressSummary } from '@cartomancer/shared';
 import { FilterChips } from '@/components/FilterChips';
 import { HomeQuizCards } from '@/components/HomeQuizCards';
 import { SignInBanner, StatsStrip, StreakBar } from '@/components/HomeStats';
+import { IconArrowRight } from '@/components/icons';
 import { isGuest } from '@/lib/guest';
 import { apiFetch, currentUserId } from '@/lib/server-api';
-import { ALL, readFilters } from '@/lib/filters';
+import { ALL, filtersToQuery, readFilters } from '@/lib/filters';
 
 // Progress is per-user live data; never prerender or cache it.
 export const dynamic = 'force-dynamic';
@@ -43,6 +45,9 @@ export default async function HomePage({
   // `next build`, which is a layer the SHA must not invalidate.
   const commit = process.env.GIT_SHA || DEV_COMMIT;
 
+  const registerQuery = filtersToQuery(filters);
+  const registerHref = registerQuery ? `/countries?${registerQuery}` : '/countries';
+
   let summary: ProgressSummary | null = null;
   if (userId) {
     const response = await apiFetch<{ summary: ProgressSummary | null }>('/api/summary', {
@@ -69,6 +74,15 @@ export default async function HomePage({
 
       <FilterChips filters={filters} showDifficulty={false} />
       <HomeQuizCards filters={filters} />
+
+      {/* Not a fifth card: the four above start a round, this one only looks
+          something up, and giving it the same weight would invite a tap from
+          someone who meant to play. It carries the region chip like the cards
+          do, so a Europe filter opens the register already narrowed. */}
+      <Link className="link-row" href={registerHref}>
+        Browse all countries
+        <IconArrowRight size={15} stroke={1.9} />
+      </Link>
 
       {/* One element, two lines: .app-shell is a flex column with an 18px gap,
           so two siblings here would read as two separate footers. */}

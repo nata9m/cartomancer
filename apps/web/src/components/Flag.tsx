@@ -16,10 +16,19 @@ export function Flag({
   isoCode,
   label,
   variant = 'fill',
+  lazy = false,
 }: {
   isoCode: string;
   label?: string;
   variant?: 'fill' | 'inline';
+  /**
+   * Defer the download until the image nears the viewport. Off by default and
+   * deliberately so: a quiz flag is the question, it is above the fold, and
+   * lib/flag-art has already warmed it a question ahead, so lazy loading there
+   * would undo that work. The register is the opposite case — 195 rows, a
+   * handful visible.
+   */
+  lazy?: boolean;
 }) {
   return (
     <img
@@ -29,6 +38,7 @@ export function Flag({
       alt={label ? `Flag of ${label}` : 'Flag'}
       className={variant === 'fill' ? 'flag-fill' : 'flag-inline'}
       decoding="async"
+      {...(lazy ? { loading: 'lazy' as const } : {})}
       draggable={false}
     />
   );
