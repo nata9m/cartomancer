@@ -1,11 +1,16 @@
-'use client';
-
 import type { QuizQuestion } from '@cartomancer/shared';
 
 /**
  * Where a country's artwork lives, and how to have it on hand before it is
  * needed. Both live here so a preload can never warm a URL the <img> then
  * misses — see scripts/vendor-flags.mjs for where the files come from.
+ *
+ * Deliberately free of a 'use client' marker, like lib/filters.ts: Flag is
+ * rendered from server components too (the home screen's Country of the day),
+ * and a function exported from a 'use client' module cannot be *called* on the
+ * server — only rendered as a component or passed as a prop. Marking this
+ * client-only made flagSrc throw there. preloadQuestionFlags is still
+ * client-only in practice and guards for it.
  */
 export const flagSrc = (isoCode: string): string => `/flag-art/${isoCode.toLowerCase()}.svg`;
 

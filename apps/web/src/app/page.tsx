@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import type { ProgressSummary } from '@cartomancer/shared';
 import { FilterChips } from '@/components/FilterChips';
 import { HomeQuizCards } from '@/components/HomeQuizCards';
+import { CountryOfTheDay } from '@/components/CountryOfTheDay';
 import { SignInBanner, StatsStrip, StreakBar } from '@/components/HomeStats';
 import { IconArrowRight } from '@/components/icons';
 import { isGuest } from '@/lib/guest';
@@ -71,6 +72,8 @@ export default async function HomePage({
       ) : (
         <SignInBanner />
       )}
+
+      <CountryOfTheDay />
 
       <FilterChips filters={filters} showDifficulty={false} />
       <HomeQuizCards filters={filters} />

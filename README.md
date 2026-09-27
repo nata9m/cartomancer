@@ -425,6 +425,16 @@ involves:
   answer input unusable on an iPhone. The base `input`/`select` rule in
   `globals.css` carries it; the alternative, `maximum-scale=1` in the viewport,
   would also take pinch-zoom away from everyone.
+- **Country of the day needs no storage.** The UTC day number indexes a fixed
+  permutation of all 195, so everyone sees the same country until midnight UTC,
+  each one comes up exactly once per 195-day cycle, and nothing is written or
+  cached. The shuffle is a seeded PRNG rather than `Math.random`, because two
+  replicas shuffling independently would serve different countries the same
+  second; and a permutation rather than `hash(day) % 195`, which collides and
+  would show some countries three times a cycle and others never. The list is
+  sorted by `isoCode` before shuffling so inserting a country into the middle of
+  `countries.ts` cannot silently reorder the rotation. Changing the seed
+  reshuffles everything, so it is meant to stay put.
 - **The country register sorts itself, and searches aliases without showing
   them.** `/countries` fetches all 195 rows once and does every filter in the
   browser, so the search box never waits on a round trip. Two things there are

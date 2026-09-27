@@ -941,6 +941,62 @@ input.answer-input {
   text-underline-offset: 2px;
 }
 
+/* ── Country of the day ─────────────────────────────────────────────────── */
+
+/* A .card, but taller and top-aligned: the fact line wraps to two or three
+   lines on a phone, and centring would leave the flag floating beside it. */
+.cotd {
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.cotd-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* A fixed 44px column so every country's name starts at the same x, with the
+   flag centred in it however wide it is. */
+.cotd-flag {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 33px;
+  margin-top: 2px;
+}
+
+/* Capped in explicit pixels rather than given a fixed box: with max-width and
+   max-height the <img> keeps its own proportions and its border box ends up
+   the size of the flag itself, so the hairline hugs the artwork. A fixed 4:3
+   box would letterbox inside the border instead, framing empty space — the
+   thing #11 landed on after the answer tiles did exactly that. The caps mean
+   nothing can overflow the card either, whatever shape arrives (#19). */
+.cotd .flag-inline {
+  width: auto;
+  height: auto;
+  max-width: 44px;
+  max-height: 33px;
+  border-radius: 2px;
+  /* Indonesia and Japan are mostly white; without this they vanish into the
+     card in light mode. */
+  box-shadow: 0 0 0 0.5px var(--border-strong);
+}
+
+/* The clue reads as a caption, not a heading: smaller, quieter, and given room
+   to wrap rather than being truncated, since a half-shown fact is worse than
+   none. */
+.cotd-fact {
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
 /* ── Country register ───────────────────────────────────────────────────── */
 
 /* Full width and taller than the 36px base, because it is the control this

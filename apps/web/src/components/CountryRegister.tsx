@@ -18,11 +18,14 @@ import { ALL, type Filters } from '@/lib/filters';
 export function CountryRegister({
   countries,
   filters,
+  initialQuery = '',
 }: {
   countries: CountryRef[];
   filters: Filters;
+  /** Seeds the search box, from ?q= — see the note in the page component. */
+  initialQuery?: string;
 }) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
 
   /**
    * Each row's haystack, built once: name, capital and aliases, all normalised.
