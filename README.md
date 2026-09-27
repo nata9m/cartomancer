@@ -467,9 +467,13 @@ involves:
   tapped. A guest gets 403 rather than an empty list: an empty list would say
   "you have learned nothing", which is a different thing.
 - **`PlayPicker` is the start screen for a one-mode game**, shared by Fun facts
-  and Countries: chips, a note, one Play button. `ModePicker` stays separate —
-  Capitals and Flags have several modes to choose between, and a list of cards
-  is a different screen.
+  and Countries: chips, a muted line saying what the round will be, an optional
+  note, and one Play button. `ModePicker` stays separate — Capitals and Flags
+  have several modes to choose between, and a list of cards is a different
+  screen. Play is `.button-primary`, the same control as "Try again" on the
+  results screens, and it sits where a mode picker puts its first card so all
+  four start screens line up (#36 — it was briefly a one-off hybrid: card
+  layout with a primary button's fill, reading as neither).
 - **Flag artwork is fetched a question ahead.** An `<img>` only starts loading
   once it is rendered, so every question's flags used to arrive a round-trip
   after the question — 160–500ms on an emulated Slow 4G link, worst in

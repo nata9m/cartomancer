@@ -725,7 +725,11 @@ input.answer-input {
   font-weight: 550;
 }
 
-.button-primary:hover {
+/* :not(:disabled) because .button-primary:hover (0,2,0) outranks
+   button:disabled (0,1,1): without it, a primary button that is busy keeps its
+   hover opacity instead of dimming, and on a touch device the tap itself leaves
+   it hovered — so "Starting…" looked exactly as tappable as "Play". */
+.button-primary:hover:not(:disabled) {
   background: var(--text-primary);
   opacity: 0.9;
 }
@@ -972,33 +976,6 @@ input.answer-input {
   text-underline-offset: 2px;
 }
 
-/* The single Play button on a start screen that has only one mode (Fun facts,
-   Countries). The class arrived with #16's picker but had no rule, so Play
-   rendered as an ordinary card and read as one of several choices rather than
-   the action. Takes .button-primary's inversion, since it is the same job. */
-.card--primary {
-  background: var(--text-primary);
-  border-color: var(--text-primary);
-  color: var(--surface-2);
-}
-
-.card--primary:hover {
-  background: var(--text-primary);
-}
-
-/* The description is muted against a card; against the inverted fill it has to
-   lift, or it reads as disabled. */
-.card--primary .card-description {
-  color: var(--surface-1);
-  opacity: 0.75;
-}
-
-/* Starting: the button is disabled, and the generic 0.45 would make it look
-   broken rather than busy. */
-.card--primary:disabled {
-  opacity: 0.7;
-}
-
 /* ── Country of the day ─────────────────────────────────────────────────── */
 
 /* A .card, but taller and top-aligned: the fact line wraps to two or three
@@ -1110,16 +1087,20 @@ input.register-search {
   height: 19.5px;
 }
 
-/* ── Learned lists (/learned/:category) ─────────────────────────────────── */
-
-/* What "learned" means for this category, which the home strip's number cannot
-   say on its own. Sized between .tagline and body text: it is read once. */
-.learned-explainer {
-  margin: -6px 0 0;
+/* The muted line that says what a screen is: what "learned" means for a
+   category, or what a round of Fun facts / Countries will be. Sized between
+   .tagline and body text — it is read once, not scanned. The 4px is
+   .group-label's, so that the first line under the chips lands at the same y on
+   a one-mode start screen as on a mode picker; side by side, /trivia and
+   /recall line up with /capitals and /flags to the pixel. */
+.screen-note {
+  margin: 4px 0 0;
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--text-secondary);
 }
+
+/* ── Learned lists (/learned/:category) ─────────────────────────────────── */
 
 /* Stands in for an empty .missed-list — a bordered box with nothing in it reads
    as something failing to load. */

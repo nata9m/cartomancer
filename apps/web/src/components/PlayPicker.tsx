@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { FilterChips } from './FilterChips';
-import { IconArrowLeft } from './icons';
+import { IconArrowLeft, IconArrowRight } from './icons';
 import type { Filters } from '@/lib/filters';
 
 /**
  * The start screen for a game with one mode: back arrow and title, the filter
- * chips it cares about, and a single Play button.
+ * chips it cares about, what the round will be, and one Play button.
  *
  * Shared by Fun facts and Countries because #28 asked for it explicitly — the
  * two screens are the same shape, and keeping them one component is what stops
@@ -29,7 +29,7 @@ export function PlayPicker({
   onPlay,
 }: {
   title: string;
-  /** The line under "Play", saying what the round will actually be. */
+  /** A muted line under the chips, saying what the round will actually be. */
   description: string;
   filters: Filters;
   showDifficulty?: boolean;
@@ -55,22 +55,24 @@ export function PlayPicker({
         showQuestionCount={showQuestionCount}
       />
 
+      <p className="screen-note">{description}</p>
+
       {note ? <span className="section-label">{note}</span> : null}
 
-      <div className="stack">
-        <button
-          type="button"
-          className="card card--primary"
-          disabled={pending}
-          aria-busy={pending}
-          onClick={onPlay}
-        >
-          <div className="card-body">
-            <span className="card-title">{pending ? 'Starting…' : 'Play'}</span>
-            <span className="card-description">{description}</span>
-          </div>
-        </button>
-      </div>
+      {/* The same button as "Try again" on the results screens, in the place a
+          mode picker puts its first card: the screen then reads as one block —
+          what this is, how big it is, go — rather than leaving the only action
+          stranded at the bottom of an otherwise empty phone screen. */}
+      <button
+        type="button"
+        className="button-primary"
+        disabled={pending}
+        aria-busy={pending}
+        onClick={onPlay}
+      >
+        {pending ? 'Starting…' : 'Play'}
+        <IconArrowRight size={16} stroke={2} />
+      </button>
 
       {error ? <p className="error-note">{error}</p> : null}
     </main>

@@ -87,7 +87,7 @@ export function LearnedList({
         </h1>
       </div>
 
-      <p className="learned-explainer">{copy.explanation}</p>
+      <p className="screen-note">{copy.explanation}</p>
 
       <FilterChips filters={filters} showDifficulty={false} />
 
