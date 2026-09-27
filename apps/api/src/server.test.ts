@@ -595,7 +595,18 @@ describe('missed questions carry the question, not the country twice', () => {
       });
       assert.equal(missed.promptText, country.capital, 'the question was the capital');
       assert.equal(missed.correctAnswer, country.name);
-      assert.notEqual(missed.promptText, missed.correctAnswer);
+      // The bug this guards is the row saying one string twice. Six countries
+      // are their own capital — Djibouti, Singapore, Luxembourg, Monaco, San
+      // Marino, Vatican City — so for those the repeat is a fact, and the
+      // questions here are drawn at random: a blanket inequality passed until
+      // the draw happened to include one.
+      if (country.capital !== country.name) {
+        assert.notEqual(
+          missed.promptText,
+          missed.correctAnswer,
+          `${country.name}: the question and the answer are the same string`,
+        );
+      }
     }
   });
 
