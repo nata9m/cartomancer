@@ -456,6 +456,16 @@ involves:
   and Play, beside `/recall/[sessionId]` for a round in progress. No filters
   travel on the links any more, so every screen opens on "All regions" and
   nothing off the home screen can narrow a round invisibly.
+- **The home stats are links, and the lists behind them count the same way the
+  stats do.** Each of the three tiles opens `/learned/:category` (#33), which
+  asks `GET /api/progress/:category` for the per-country state and joins it with
+  the full country list, so "Learned" and "Not learned yet" together are always
+  all 195. The endpoint counts `bool_or(is_learned)` over the category's quiz
+  types — the same rule `/api/summary` counts with, and the reason the list's
+  total cannot drift from the tile's. Its heading keeps the unfiltered number
+  even when the region chip narrows the sections, because that is the number you
+  tapped. A guest gets 403 rather than an empty list: an empty list would say
+  "you have learned nothing", which is a different thing.
 - **`PlayPicker` is the start screen for a one-mode game**, shared by Fun facts
   and Countries: chips, a note, one Play button. `ModePicker` stays separate —
   Capitals and Flags have several modes to choose between, and a list of cards

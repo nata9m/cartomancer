@@ -546,6 +546,81 @@ describe('home-screen summary', () => {
   });
 });
 
+describe('learned lists', () => {
+  const fetchProgress = async (category: string, headers = userHeaders()) =>
+    app.inject({ method: 'GET', url: `/api/progress/${category}`, headers });
+
+  /**
+   * The point of the endpoint: the list behind a stat must not be able to
+   * disagree with the stat. Both count `bool_or(is_learned)` over the category's
+   * quiz types, so this asserts they really do share that rule rather than each
+   * deriving it from streaks.
+   */
+  it('agrees with the home-screen summary on every category', async () => {
+    const summary = (
+      await app.inject({ method: 'GET', url: '/api/summary?tz=UTC', headers: userHeaders() })
+    ).json().summary;
+
+    for (const category of ['capitals', 'countries', 'flags'] as const) {
+      const response = await fetchProgress(category);
+      assert.equal(response.statusCode, 200);
+      const body = response.json();
+      assert.equal(body.category, category);
+      const learned = body.countries.filter((row: { learned: boolean }) => row.learned).length;
+      assert.equal(learned, summary.learned[category], `${category} count`);
+    }
+  });
+
+  it('reports the best streak, and learned exactly where it clears the threshold', async () => {
+    const capitals = (await fetchProgress('capitals')).json();
+    assert.ok(capitals.countries.length > 0, 'the suite has answered capitals questions by now');
+    for (const row of capitals.countries) {
+      assert.equal(
+        row.learned,
+        row.bestStreak >= 3,
+        `country ${row.countryId}: learned ${row.learned} at streak ${row.bestStreak}`,
+      );
+    }
+
+    // Recall's threshold is one, so a country is learned the moment it has any
+    // streak at all — which is what makes "2/3" meaningless on that list.
+    const countries = (await fetchProgress('countries')).json();
+    for (const row of countries.countries) {
+      assert.equal(row.learned, row.bestStreak >= 1);
+    }
+  });
+
+  /**
+   * Countries with no progress row are absent, not padded in as not-learned:
+   * the web app builds the "not learned yet" side from the full country list, so
+   * a row here for a country nobody has been asked about would be two sources
+   * for the same fact.
+   */
+  it('returns only the countries that have been answered', async () => {
+    const body = (await fetchProgress('capitals')).json();
+    const returned = new Set(body.countries.map((row: { countryId: number }) => row.countryId));
+
+    const rows = await prisma.progress.findMany({
+      where: { userId, quizType: { category: 'capitals' } },
+      select: { countryId: true },
+    });
+    const expected = new Set(rows.map((row) => row.countryId));
+
+    assert.deepEqual([...returned].sort(), [...expected].sort());
+    assert.ok(returned.size < 195, 'not every country has been answered');
+  });
+
+  it('refuses guests rather than calling their progress empty', async () => {
+    const response = await fetchProgress('capitals', {});
+    assert.equal(response.statusCode, 403);
+  });
+
+  it('404s an unknown category', async () => {
+    const response = await fetchProgress('continents');
+    assert.equal(response.statusCode, 404);
+  });
+});
+
 describe('catalog', () => {
   it('serves the quiz types from the database', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/quiz-types' });

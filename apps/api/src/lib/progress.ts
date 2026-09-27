@@ -1,4 +1,11 @@
-import { learnedThresholdFor, TOTAL_COUNTRIES, type ProgressSummary } from '@cartomancer/shared';
+import {
+  learnedThresholdFor,
+  TOTAL_COUNTRIES,
+  type CategoryProgress,
+  type CountryProgress,
+  type ProgressSummary,
+  type QuizCategory,
+} from '@cartomancer/shared';
 import type { PrismaClient } from '@cartomancer/db';
 
 export interface ProgressUpdate {
@@ -139,6 +146,47 @@ export async function loadSummary(
     },
     totalCountries: TOTAL_COUNTRIES,
   };
+}
+
+/**
+ * Per-country learning state for one category — the drill-down behind a home
+ * stat.
+ *
+ * `bool_or(is_learned)` is the same rule `loadSummary` counts with, so the
+ * number of learned rows here cannot disagree with the number on the home
+ * strip. That is the point of asking the database rather than recomputing the
+ * threshold from the streaks: a category spans several quiz types (both
+ * capitals directions, multiple choice and typing) and a country is learned
+ * once any of them has it.
+ *
+ * Countries with no `progress` row are absent rather than returned as
+ * not-learned: the caller has the full list of 195 already, and sending 195
+ * rows of "nothing yet" to say the same thing would only add ways for the two
+ * to disagree.
+ */
+export async function loadCategoryProgress(
+  prisma: PrismaClient,
+  userId: string,
+  category: QuizCategory,
+): Promise<CategoryProgress> {
+  const rows = await prisma.$queryRawUnsafe<
+    { country_id: number; learned: boolean; best_streak: number }[]
+  >(
+    `SELECT p.country_id, bool_or(p.is_learned) AS learned, MAX(p.current_streak) AS best_streak
+       FROM progress p
+       JOIN quiz_types q ON q.id = p.quiz_type_id
+      WHERE p.user_id = $1::uuid AND q.category = $2
+      GROUP BY p.country_id`,
+    userId,
+    category,
+  );
+
+  const countries: CountryProgress[] = rows.map((row) => ({
+    countryId: Number(row.country_id),
+    learned: row.learned,
+    bestStreak: Number(row.best_streak),
+  }));
+  return { category, countries };
 }
 
 function isValidTimeZone(zone: string): boolean {
