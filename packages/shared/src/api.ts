@@ -225,6 +225,23 @@ export interface CategoryProgress {
   countries: CountryProgress[];
 }
 
+/**
+ * The two facts a country's detail page needs that the repo does not already
+ * hold, keyed by ISO code in `country-details.ts`. Capitals, flags, regions and
+ * the trivia clues are all in `countries.ts` and `facts.ts` already.
+ *
+ * Generated from published datasets rather than typed by hand — see the header
+ * of `scripts/fetch-country-details.mjs` for which field comes from where and
+ * what each one's licence asks for.
+ */
+export interface CountryDetail {
+  isoCode: string;
+  population: number;
+  /** The year the figure is for; null where the source publishes none. */
+  populationYear: number | null;
+  languages: string[];
+}
+
 export interface ApiError {
   error: string;
   message: string;

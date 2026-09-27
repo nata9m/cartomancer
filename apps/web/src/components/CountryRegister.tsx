@@ -56,6 +56,17 @@ export function CountryRegister({
     [countries],
   );
 
+  // The search box and the region chip ride along to the detail page, so its
+  // back arrow can return to this list as it was left. The box is local state,
+  // not the URL, which is why the link is built here rather than read off it.
+  const detailHref = (isoCode: string): string => {
+    const params = new URLSearchParams();
+    if (query.trim() !== '') params.set('q', query.trim());
+    if (filters.region !== ALL) params.set('region', filters.region);
+    const suffix = params.toString();
+    return `/countries/${isoCode.toLowerCase()}${suffix ? `?${suffix}` : ''}`;
+  };
+
   const needle = normalizeAnswer(query);
   const matches = useMemo(
     () =>
@@ -123,7 +134,12 @@ export function CountryRegister({
             <span className="register-letter">{section.letter}</span>
             <div className="missed-list">
               {section.countries.map((country) => (
-                <CountryRow isoCode={country.isoCode} name={country.name} key={country.id}>
+                <CountryRow
+                  isoCode={country.isoCode}
+                  name={country.name}
+                  href={detailHref(country.isoCode)}
+                  key={country.id}
+                >
                   <span className="missed-answer">{country.capital}</span>
                 </CountryRow>
               ))}
