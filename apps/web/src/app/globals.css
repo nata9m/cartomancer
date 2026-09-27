@@ -945,6 +945,52 @@ input.answer-input {
   text-align: right;
 }
 
+/* The flag that was not recognised, at a size you can actually recognise (#37).
+   A fixed box with the image capped inside it, so every row is the same height
+   whatever the flag's proportions and the artwork still keeps its own: the caps
+   are px rather than the cq units .option-flag-box needs, because this box's
+   height is stated outright and is therefore definite in every engine — which
+   is the iOS bug #19 had to work around. The hairline is on the image, so it
+   hugs the flag rather than framing the empty space beside it. */
+.missed-flag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 44px;
+  flex: none;
+}
+
+.missed-flag .flag-fill {
+  max-width: 64px;
+  max-height: 44px;
+  width: auto;
+  height: auto;
+}
+
+/* A trivia clue is a sentence: it needs the row's full width and wraps to two
+   or three lines on a phone, so the answer goes under it rather than being
+   squeezed into a right-hand column. */
+.missed-row--stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 11px 12px;
+}
+
+.missed-clue {
+  line-height: 1.4;
+}
+
+.missed-answer-line {
+  color: var(--text-secondary);
+}
+
+.missed-answer-line strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .footer-note {
   margin-top: auto;
   padding-top: 8px;

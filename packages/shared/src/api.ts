@@ -82,10 +82,29 @@ export interface AnswerResult {
   newlyLearned: boolean;
 }
 
+/**
+ * One question that was answered wrongly, as the results screen shows it: the
+ * question *and* the answer.
+ *
+ * `promptText` is why this carries more than the country: for every
+ * `*_to_country` quiz the expected answer IS the country name, so a row built
+ * from the country alone said "Brazil — Brazil" and hid what was actually
+ * asked. It is the same string the question carried (see `QuizQuestion`) —
+ * the country, the capital, or the trivia clue — and it is empty for
+ * flag → country, where the question was a picture and the row shows the flag.
+ */
 export interface MissedQuestion {
+  /**
+   * The question's place in the round, and the row's key. Not `countryId`:
+   * a country is unique per session today only because `session_answers` is
+   * keyed that way, which is a storage detail rather than a promise.
+   */
+  sequence: number;
   countryId: number;
   countryName: string;
   isoCode: string;
+  /** The question as it was asked, in text. Empty when it was a flag. */
+  promptText: string;
   /** The answer that was expected (a capital or a country name). */
   correctAnswer: string;
 }

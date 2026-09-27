@@ -466,6 +466,17 @@ involves:
   even when the region chip narrows the sections, because that is the number you
   tapped. A guest gets 403 rather than an empty list: an empty list would say
   "you have learned nothing", which is a different thing.
+- **A missed row is the question and the answer, not the country twice.**
+  `correctAnswer` IS the country name for every `*_to_country` quiz, so a
+  results row built from the country alone read "Brazil — Brazil" and never
+  showed the clue or the flag that was actually missed (#37). `MissedQuestion`
+  carries `promptText` — the same string the question carried, rebuilt with the
+  same `promptFor` the round used rather than a second expression of the rule —
+  and the row renders by category: the flag at 64px for either flags direction,
+  the clue stacked over the answer for trivia, prompt and answer on one line for
+  capitals. Six countries (Djibouti, Singapore, Luxembourg, Monaco, San Marino,
+  Vatican City) still show one name twice on a capitals round, because their
+  capital really does share their name.
 - **`PlayPicker` is the start screen for a one-mode game**, shared by Fun facts
   and Countries: chips, a muted line saying what the round will be, an optional
   note, and one Play button. `ModePicker` stays separate — Capitals and Flags
