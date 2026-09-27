@@ -225,6 +225,31 @@ export interface CategoryProgress {
   countries: CountryProgress[];
 }
 
+/**
+ * Reference facts for a country's detail page (#38), keyed by ISO code in
+ * `country-details.ts`. Generated from published datasets rather than typed by
+ * hand — see the header of `scripts/fetch-country-details.mjs` for which field
+ * comes from where, and the licences each one carries.
+ */
+export interface CountryDetail {
+  isoCode: string;
+  /** Wikipedia's lead, cut to two or three sentences. Shown with attribution. */
+  description: string;
+  /** Canonical article URL, from Wikipedia rather than built from the name. */
+  wikipediaUrl: string;
+  /** Every seat of government, not just the canonical one: Bolivia has two. */
+  capitals: string[];
+  subregion: string;
+  population: number;
+  /** The year the figure is for; null where the source publishes none. */
+  populationYear: number | null;
+  areaKm2: number;
+  currencies: { code: string; name: string }[];
+  languages: string[];
+  callingCode: string;
+  tld: string;
+}
+
 export interface ApiError {
   error: string;
   message: string;
