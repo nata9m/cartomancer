@@ -941,6 +941,60 @@ input.answer-input {
   text-underline-offset: 2px;
 }
 
+/* ── Country register ───────────────────────────────────────────────────── */
+
+/* Full width and taller than the 36px base, because it is the control this
+   screen is built around and it is a thumb target. The 16px font-size comes
+   from the base input rule above — that floor is what stops iOS zooming the
+   page in on focus, and nothing here may lower it.
+
+   Spelled `input.register-search` so it outranks `input[type='text']`, which is
+   more specific than a bare class and would otherwise keep the 36px height —
+   the same trap .answer-input hit. */
+input.register-search {
+  width: 100%;
+  height: 42px;
+  /* iOS draws its own inset/rounded box on text inputs inside a search-shaped
+     field; this keeps it looking like every other field in the app. */
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+/* The home screen's way into the register. Deliberately lighter than .card —
+   it is a reference link sitting under four buttons that start a round, and it
+   should not compete with them for the tap. */
+.link-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 2px;
+  font-size: 13px;
+  color: var(--text-accent);
+}
+
+/* The A-Z marker above each run of rows. Sticky so the letter you are inside
+   stays visible while scrolling 195 rows on a phone. */
+.register-letter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 2px 0;
+  background: var(--surface-0);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+/* Reuses .missed-row for the row shell (flag, name, right-aligned capital) and
+   only widens the flag: 18px reads as a bullet rather than a flag when it is
+   the thing you came to look at. 4:3 like .flag-inline, so `object-fit:
+   contain` still letterboxes Nepal and Switzerland rather than cropping them. */
+.register-row .flag-inline {
+  width: 26px;
+  height: 19.5px;
+}
+
 /* ── Flags (public/flags) ───────────────────────────────────────────────── */
 
 /* The image is sized to the flag, never the flag to the image: ratios run from

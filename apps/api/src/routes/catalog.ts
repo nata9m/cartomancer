@@ -24,7 +24,8 @@ export async function registerCatalogRoutes(app: FastifyInstance): Promise<void>
 
   /**
    * Country reference data. Used by the guest recall results screen, which has
-   * to list the countries that weren't recalled without anything persisted.
+   * to list the countries that weren't recalled without anything persisted, and
+   * by the /countries register, which searches over the aliases.
    */
   app.get('/api/countries', async (request) => {
     const query = request.query as { region?: string };
@@ -32,7 +33,15 @@ export async function registerCatalogRoutes(app: FastifyInstance): Promise<void>
     const rows = await app.prisma.country.findMany({
       where: region === 'all' ? {} : { region },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, isoCode: true, capital: true, region: true, difficulty: true },
+      select: {
+        id: true,
+        name: true,
+        isoCode: true,
+        capital: true,
+        region: true,
+        difficulty: true,
+        aliases: true,
+      },
     });
     const countries: CountryRef[] = rows.map((row) => ({
       id: row.id,
@@ -41,6 +50,7 @@ export async function registerCatalogRoutes(app: FastifyInstance): Promise<void>
       capital: row.capital,
       region: row.region as Region,
       difficulty: row.difficulty as Difficulty,
+      aliases: row.aliases,
     }));
     return { countries, total: countries.length };
   });
