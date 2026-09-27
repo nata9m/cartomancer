@@ -239,9 +239,28 @@ a {
   overflow: hidden;
 }
 
+/* An <a> since #33, so `display: block` rather than the inline default; the
+   sibling border rule below still works because the class did not change. */
 .stat {
+  display: block;
   padding: 10px 8px;
   text-align: center;
+}
+
+/* Hover first, then :active, because they are the same specificity and a mouse
+   press matches both — declared the other way round, pressing a tile on a
+   desktop showed the hover tint and the press did nothing. Standard LVHA order.
+   :active is the one that matters: a phone has no pointer to hover with (#13
+   was exactly this mistake), and it is what covers the wait while the next
+   screen renders. */
+@media (hover: hover) {
+  .stat:hover {
+    background: var(--surface-2);
+  }
+}
+
+.stat:active {
+  background: var(--surface-3);
 }
 
 .stat + .stat {
@@ -249,8 +268,20 @@ a {
 }
 
 .stat-value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
   font-size: 15px;
   font-weight: 600;
+}
+
+/* Beside the number, not at the tile's trailing edge: three tiles share 390px
+   and "Countries learned" already fills its column at 10px. */
+.stat-chevron {
+  flex: none;
+  margin-right: -3px;
+  color: var(--text-muted);
 }
 
 .stat-label {
@@ -1069,13 +1100,52 @@ input.register-search {
   color: var(--text-accent);
 }
 
-/* Reuses .missed-row for the row shell (flag, name, right-aligned capital) and
-   only widens the flag: 18px reads as a bullet rather than a flag when it is
-   the thing you came to look at. 4:3 like .flag-inline, so `object-fit:
-   contain` still letterboxes Nepal and Switzerland rather than cropping them. */
-.register-row .flag-inline {
+/* Every country list row (the register, the learned lists) reuses .missed-row
+   for the shell and only widens the flag: 18px reads as a bullet rather than a
+   flag when it is the thing you came to look at. 4:3 like .flag-inline, so
+   `object-fit: contain` still letterboxes Nepal and Switzerland rather than
+   cropping them. */
+.country-row .flag-inline {
   width: 26px;
   height: 19.5px;
+}
+
+/* ── Learned lists (/learned/:category) ─────────────────────────────────── */
+
+/* What "learned" means for this category, which the home strip's number cannot
+   say on its own. Sized between .tagline and body text: it is read once. */
+.learned-explainer {
+  margin: -6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* Stands in for an empty .missed-list — a bordered box with nothing in it reads
+   as something failing to load. */
+.learned-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* How close an unlearned country is: "2/3" in the row, where the capital's
+   column would be. Tabular so a column of them does not jitter. */
+.learned-streak {
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--surface-1);
+  border: 0.5px solid var(--border);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* The capital follows the badge rather than absorbing the free space itself, so
+   a row carrying both reads "name … 2/3 Abuja" instead of splitting them. */
+.learned-streak + .missed-answer {
+  margin-left: 8px;
 }
 
 /* ── Flags (public/flags) ───────────────────────────────────────────────── */

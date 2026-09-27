@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { normalizeAnswer, type CountryRef } from '@cartomancer/shared';
+import { CountryRow } from './CountryRow';
 import { FilterChips } from './FilterChips';
-import { Flag } from './Flag';
 import { IconArrowLeft } from './icons';
 import { ALL, type Filters } from '@/lib/filters';
 
@@ -123,11 +123,9 @@ export function CountryRegister({
             <span className="register-letter">{section.letter}</span>
             <div className="missed-list">
               {section.countries.map((country) => (
-                <div className="missed-row register-row" key={country.id}>
-                  <Flag isoCode={country.isoCode} label={country.name} variant="inline" lazy />
-                  <span>{country.name}</span>
+                <CountryRow isoCode={country.isoCode} name={country.name} key={country.id}>
                   <span className="missed-answer">{country.capital}</span>
-                </div>
+                </CountryRow>
               ))}
             </div>
           </div>

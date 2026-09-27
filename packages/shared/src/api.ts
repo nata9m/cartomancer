@@ -181,6 +181,31 @@ export interface ProgressSummary {
   totalCountries: number;
 }
 
+/**
+ * One country's state within a category, from `GET /api/progress/:category`.
+ *
+ * Only countries the user has answered at least once appear: a country with no
+ * `progress` row has nothing to say beyond "not learned", which the caller
+ * already knows from the full country list. So the learned lists build their
+ * "not learned yet" section from the 195 rather than from this response.
+ */
+export interface CountryProgress {
+  countryId: number;
+  /** True when any quiz type in the category has it learned — the api's rule. */
+  learned: boolean;
+  /**
+   * Best current streak across the category's quiz types, for showing how close
+   * an unlearned country is. Answering wrongly resets it, so this is progress
+   * towards the threshold, never a total of correct answers.
+   */
+  bestStreak: number;
+}
+
+export interface CategoryProgress {
+  category: QuizCategory;
+  countries: CountryProgress[];
+}
+
 export interface ApiError {
   error: string;
   message: string;

@@ -197,6 +197,24 @@ export function learnedThresholdFor(quizTypeKey: string): number {
 }
 
 /**
+ * The bar a country has to clear to count as learned in a whole category, for
+ * screens that explain the rule rather than apply it (the api stores
+ * `is_learned` per quiz type and a category is `bool_or` over those).
+ *
+ * Derived from the category's quiz types rather than hard-coded, so adding one
+ * keeps the copy honest: `countries` is 1 because active recall is its only
+ * format, everything else is 3. If a category ever mixed thresholds this
+ * returns the strictest, which is the number the explanation should quote —
+ * none does today, and a category that did would need two sentences anyway.
+ */
+export function learnedThresholdForCategory(category: QuizCategory): number {
+  const thresholds = QUIZ_TYPES.filter((type) => type.category === category).map((type) =>
+    learnedThresholdFor(type.key),
+  );
+  return thresholds.length === 0 ? LEARNED_STREAK_THRESHOLD : Math.max(...thresholds);
+}
+
+/**
  * pg_trgm similarity floor for fuzzy answer matching, in the middle of the
  * 0.4–0.5 band: it forgives a transposed, doubled or missing letter in a
  * medium-length name ("Swizerland" 0.64, "Netherland" 0.77, "Germeny" 0.45)

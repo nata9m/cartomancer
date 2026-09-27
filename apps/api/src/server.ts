@@ -6,6 +6,7 @@ import type { Env } from './env.js';
 import { HttpError } from './errors.js';
 import { registerCatalogRoutes } from './routes/catalog.js';
 import { registerHealthRoutes } from './routes/health.js';
+import { registerProgressRoutes } from './routes/progress.js';
 import { registerRecallRoutes } from './routes/recall.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerSummaryRoutes } from './routes/summary.js';
@@ -96,6 +97,7 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
   await registerHealthRoutes(app);
   await registerCatalogRoutes(app);
   await registerSummaryRoutes(app);
+  await registerProgressRoutes(app);
   await registerSessionRoutes(app);
   await registerRecallRoutes(app);
 

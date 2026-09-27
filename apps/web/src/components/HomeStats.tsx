@@ -1,5 +1,7 @@
+import Link from 'next/link';
 import type { ProgressSummary } from '@cartomancer/shared';
-import { IconFlame, IconLock } from './icons';
+import { IconChevronRight, IconFlame, IconLock } from './icons';
+import { LEARNED_CATEGORIES, LEARNED_COPY, learnedHref } from '@/lib/learned';
 
 const DAY_INITIALS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -23,21 +25,26 @@ export function StreakBar({ summary }: { summary: ProgressSummary }) {
   );
 }
 
+/**
+ * The three learned counts. Each one is a link into its own list (#33): the
+ * number says how many, and the only way to find out *which* was to play until
+ * a country stopped coming back.
+ *
+ * The chevron sits next to the value rather than at the tile's trailing edge,
+ * where a list row would put it: these are three tiles side by side at 390px,
+ * and the labels ("Countries learned") already fill their column at 10px.
+ */
 export function StatsStrip({ summary }: { summary: ProgressSummary }) {
-  const stats: [number, string][] = [
-    [summary.learned.countries, 'Countries learned'],
-    [summary.learned.capitals, 'Capitals learned'],
-    [summary.learned.flags, 'Flags learned'],
-  ];
   return (
     <div className="stats-strip">
-      {stats.map(([value, label]) => (
-        <div className="stat" key={label}>
+      {LEARNED_CATEGORIES.map((category) => (
+        <Link className="stat" href={learnedHref(category)} key={category}>
           <div className="stat-value">
-            {value}/{summary.totalCountries}
+            {summary.learned[category]}/{summary.totalCountries}
+            <IconChevronRight className="stat-chevron" size={13} stroke={2} />
           </div>
-          <div className="stat-label">{label}</div>
-        </div>
+          <div className="stat-label">{LEARNED_COPY[category].label}</div>
+        </Link>
       ))}
     </div>
   );
