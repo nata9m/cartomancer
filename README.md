@@ -447,12 +447,19 @@ involves:
   exactly what a lookup box should do, while listing it as another *name* for
   South Africa would be wrong. Splitting the column would be the fix if the
   display is ever wanted.
-- **The home screen filters by region only.** Countries — recall — is the one
-  game it starts directly, and recall ignores difficulty by design, so a Hard
-  chip there silently did nothing. Capitals, Flags and Fun facts each carry
-  their own difficulty chip on the screen they open. The home page also
-  normalises `difficulty` to `all` before handing the filters to its cards, so a
-  stale `?difficulty=` cannot ride out of a screen that no longer shows it.
+- **The home screen has no filters at all, and every card opens a start
+  screen.** #15 took the difficulty chip off it, #28 took the region chip too:
+  three of the four cards opened screens carrying their own region chip, so the
+  home one either duplicated theirs or, for those three, promised something it
+  did not do. Countries was the reason it was there — it used to start a round
+  straight from the card — and now has its own screen at `/recall`, region chip
+  and Play, beside `/recall/[sessionId]` for a round in progress. No filters
+  travel on the links any more, so every screen opens on "All regions" and
+  nothing off the home screen can narrow a round invisibly.
+- **`PlayPicker` is the start screen for a one-mode game**, shared by Fun facts
+  and Countries: chips, a note, one Play button. `ModePicker` stays separate —
+  Capitals and Flags have several modes to choose between, and a list of cards
+  is a different screen.
 - **Flag artwork is fetched a question ahead.** An `<img>` only starts loading
   once it is rendered, so every question's flags used to arrive a round-trip
   after the question — 160–500ms on an emulated Slow 4G link, worst in
