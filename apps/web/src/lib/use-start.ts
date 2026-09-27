@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import type { QuizSession } from '@cartomancer/shared';
 import { startQuizSession, startRecallSession } from './client-api';
 import type { Filters } from './filters';
 import { preloadQuestionFlags } from './flag-art';
@@ -14,23 +15,22 @@ export const pendingKeyFor = (quizTypeKey: string, questionCount?: number): stri
  * Starts sessions from the home screen and the mode pickers.
  *
  * Filters arrive as props from the server component that read them off the URL,
- * rather than through useSearchParams — that hook would opt the whole subtree
- * out of server rendering, and these screens should be readable before the
- * JavaScript lands.
+ * rather than through useSearchParams, so the subtree is not opted out of server
+ * rendering.
  *
- * One path serves both modes: the api decides whether the caller is a guest (by
- * whether the BFF forwarded a user id) and says so on the payload. A guest
- * session is stashed in sessionStorage here; a persisted one needs nothing,
- * since the api already owns it.
+ * Returns the created session so trivia callers can extract fact IDs for guest
+ * rotation tracking.
  */
 export function useSessionStarter(filters: Filters) {
   const router = useRouter();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function startQuiz(quizTypeKey: string, questionCount?: number): Promise<void> {
-    // Composite so that, on a screen offering the same quiz type at several
-    // lengths (Fun facts), only the tapped card shows as pending.
+  async function startQuiz(
+    quizTypeKey: string,
+    questionCount?: number,
+    excludeFactIds?: number[],
+  ): Promise<QuizSession | null> {
     setPendingKey(pendingKeyFor(quizTypeKey, questionCount));
     setError(null);
     try {
@@ -39,19 +39,18 @@ export function useSessionStarter(filters: Filters) {
         region: filters.region,
         difficulty: filters.difficulty,
         ...(questionCount === undefined ? {} : { questionCount }),
+        ...(excludeFactIds?.length ? { excludeFactIds } : {}),
       });
       if (session.isGuest) {
         saveGuestQuiz({ session, answers: [] });
       }
-      // Question one is the one nothing precedes, so this is its only chance:
-      // its flags download during the route transition instead of a round-trip
-      // after the question is already on screen. From there QuizRunner keeps a
-      // question ahead on its own.
       preloadQuestionFlags(session.questions[0]);
       router.push(`/quiz/${session.id}`);
+      return session;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not start that quiz');
       setPendingKey(null);
+      return null;
     }
   }
 

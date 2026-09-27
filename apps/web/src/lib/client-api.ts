@@ -37,6 +37,7 @@ export interface StartQuizInput {
   region?: string;
   difficulty?: string;
   questionCount?: number;
+  excludeFactIds?: number[];
 }
 
 export const startQuizSession = (input: StartQuizInput): Promise<QuizSession> =>

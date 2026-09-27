@@ -27,6 +27,8 @@ export interface QuizOption {
 export interface QuizQuestion {
   sequence: number;
   countryId: number;
+  /** Present for trivia questions; identifies the clue for rotation tracking. */
+  factId?: number;
   /** Small muted line above the prompt, e.g. "Capital of". */
   promptLabel: string;
   /** Main prompt text: a country name, a capital name, or a trivia clue. */
@@ -53,6 +55,8 @@ export interface StartSessionRequest {
   region?: RegionFilter;
   difficulty?: DifficultyFilter;
   questionCount?: number;
+  /** Guest-only: fact IDs already seen, for clue rotation without a server session. */
+  excludeFactIds?: number[];
 }
 
 export interface AnswerRequest {

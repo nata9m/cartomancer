@@ -1,5 +1,4 @@
-import { QUESTION_COUNT_OPTIONS } from '@cartomancer/shared';
-import { ModePicker } from '@/components/ModePicker';
+import { TriviaModePicker } from '@/components/TriviaModePicker';
 import { readFilters } from '@/lib/filters';
 
 export default async function TriviaPage({
@@ -9,21 +8,5 @@ export default async function TriviaPage({
 }) {
   const filters = readFilters(await searchParams);
 
-  return (
-    <ModePicker
-      title="Fun facts"
-      filters={filters}
-      groups={[
-        {
-          label: 'How many questions?',
-          modes: QUESTION_COUNT_OPTIONS.map((count) => ({
-            quizTypeKey: 'trivia-fact2c-type',
-            questionCount: count,
-            title: `${count} questions`,
-            description: 'Read a clue, type the country it describes',
-          })),
-        },
-      ]}
-    />
-  );
+  return <TriviaModePicker filters={filters} />;
 }
