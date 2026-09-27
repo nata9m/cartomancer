@@ -68,9 +68,12 @@ COPY --from=build --chown=1000:1000 /repo/apps/web/public ./public
 
 # The commit this image was built from, shown in the home screen's footer:
 # there is no .git here to read it from at runtime. Last in the stage on
-# purpose — it changes every build, so anything above it would be a cache miss
-# every time, including the install and `next build` layers. The workflow passes
-# the same seven characters the image is tagged with.
+# purpose — it changes every build, so every layer after it is a cache miss,
+# which here is nothing but USER and EXPOSE. The COPY layers above it keep
+# their cache. The build stage is untouched either way: an ARG is scoped to the
+# stage that declares it, and `build` never mentions GIT_SHA, so `pnpm install`
+# and `next build` could not be invalidated by this no matter where it sat. The
+# workflow passes the same seven characters the image is tagged with.
 ARG GIT_SHA=dev
 ENV GIT_SHA=$GIT_SHA
 

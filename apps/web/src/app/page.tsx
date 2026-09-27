@@ -79,7 +79,18 @@ export default async function HomePage() {
           {commit === DEV_COMMIT ? (
             commit
           ) : (
-            <a href={`${REPO_URL}/commit/${commit}`} rel="noreferrer">
+            /* A new tab, not this one: tapping the build number should not
+               take someone out of the app they were using, and the rel was
+               already written for a link that leaves (noreferrer implies
+               noopener everywhere current). The label says so out loud,
+               because an unannounced new tab is disorienting with a screen
+               reader. */
+            <a
+              href={`${REPO_URL}/commit/${commit}`}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Commit ${commit} on GitHub — opens in a new tab`}
+            >
               {commit}
             </a>
           )}
