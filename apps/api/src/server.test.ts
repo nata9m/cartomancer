@@ -546,6 +546,85 @@ describe('home-screen summary', () => {
   });
 });
 
+describe('missed questions carry the question, not the country twice', () => {
+  /**
+   * The bug in #37: `correctAnswer` IS the country name for every
+   * `*_to_country` quiz, so a row built from the country alone read
+   * "Brazil — Brazil" and never showed the clue or the capital that was asked.
+   */
+  const missAll = async (quizTypeKey: string, questionCount: number) => {
+    const session = await startSession(quizTypeKey, { questionCount });
+    for (const question of session.questions) {
+      await answer(session.id, question.sequence, 'definitely not the answer');
+    }
+    const results = await finish(session.id);
+    return { session, results };
+  };
+
+  it('returns the clue for a trivia question', async () => {
+    const { session, results } = await missAll('trivia-fact2c-type', 3);
+    assert.equal(results.missed.length, 3);
+
+    const promptsAsked = new Map(
+      session.questions.map((q: { countryId: number; promptText: string }) => [
+        q.countryId,
+        q.promptText,
+      ]),
+    );
+    for (const missed of results.missed) {
+      assert.ok(missed.promptText.length > 0, 'a trivia miss must carry its clue');
+      assert.equal(
+        missed.promptText,
+        promptsAsked.get(missed.countryId),
+        'the clue on the results screen must be the clue that was asked',
+      );
+      assert.notEqual(
+        missed.promptText,
+        missed.correctAnswer,
+        'the clue is not the country name',
+      );
+      assert.ok(missed.sequence > 0, 'rows are keyed by the question, not the country');
+    }
+  });
+
+  it('returns the capital asked about for capital → country', async () => {
+    const { results } = await missAll('capitals-cap2c-type', 2);
+    for (const missed of results.missed) {
+      const country = await prisma.country.findUniqueOrThrow({
+        where: { id: missed.countryId },
+      });
+      assert.equal(missed.promptText, country.capital, 'the question was the capital');
+      assert.equal(missed.correctAnswer, country.name);
+      assert.notEqual(missed.promptText, missed.correctAnswer);
+    }
+  });
+
+  it('still asks with the country for country → capital, where it always worked', async () => {
+    const { results } = await missAll('capitals-c2cap-type', 2);
+    for (const missed of results.missed) {
+      const country = await prisma.country.findUniqueOrThrow({
+        where: { id: missed.countryId },
+      });
+      assert.equal(missed.promptText, country.name);
+      assert.equal(missed.correctAnswer, country.capital);
+    }
+  });
+
+  /**
+   * flag → country asks with a picture, so there is no prompt text to give —
+   * the results screen renders the flag from isoCode instead, which is what it
+   * could not do while the row carried only 18px of inline badge.
+   */
+  it('gives a flag question no prompt text, but the iso code to draw it', async () => {
+    const { results } = await missAll('flags-flag2c-mc', 2);
+    for (const missed of results.missed) {
+      assert.equal(missed.promptText, '');
+      assert.equal(missed.isoCode.length, 2);
+      assert.equal(missed.correctAnswer, missed.countryName);
+    }
+  });
+});
+
 describe('learned lists', () => {
   const fetchProgress = async (category: string, headers = userHeaders()) =>
     app.inject({ method: 'GET', url: `/api/progress/${category}`, headers });

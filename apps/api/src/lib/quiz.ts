@@ -307,7 +307,12 @@ export function buildQuestions(input: QuestionBuildInput): QuizQuestion[] {
   });
 }
 
-function promptFor(
+/**
+ * The question as the player saw it. Exported because the results screen's
+ * missed list needs the same string: a missed row is the question and the
+ * answer, and rebuilding the question a second way is how the two drift.
+ */
+export function promptFor(
   definition: QuizTypeDefinition,
   country: Country,
   factsByCountryId: Map<number, string>,

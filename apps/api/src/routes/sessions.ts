@@ -23,6 +23,7 @@ import {
   loadFactsByIds,
   parseDifficulty,
   parseRegion,
+  promptFor,
   recordFactProgress,
   resolveQuizType,
   selectCountryIds,
@@ -452,7 +453,12 @@ async function buildResults(
 ): Promise<SessionResults> {
   const session = await prisma.quizSession.findUniqueOrThrow({
     where: { id: sessionId },
-    include: { quizType: true, questions: { orderBy: { sequence: 'asc' } } },
+    // The clue is on the question, not the answer: session_answers records
+    // which country was asked about, never which of its facts.
+    include: {
+      quizType: true,
+      questions: { include: { fact: true }, orderBy: { sequence: 'asc' } },
+    },
   });
   const definition = requireDefinition(session.quizType.key);
 
@@ -463,12 +469,29 @@ async function buildResults(
   });
   const score = answers.filter((answer) => answer.wasCorrect).length;
   const total = session.questionCount;
+
+  // Keyed by country because that is all an answer row carries; a country is
+  // asked about at most once per session, which the session_answers primary
+  // key (session, user, country) enforces.
+  const questionByCountryId = new Map(
+    session.questions.map((question) => [question.countryId, question]),
+  );
+  const factsByCountryId = new Map(
+    session.questions
+      .filter((question) => question.fact !== null)
+      .map((question) => [question.countryId, question.fact!.fact]),
+  );
+
   const missed: MissedQuestion[] = answers
     .filter((answer) => !answer.wasCorrect)
     .map((answer) => ({
+      // The question it was: rebuilt with the same promptFor the round used,
+      // rather than a second expression of the same rule.
+      sequence: questionByCountryId.get(answer.countryId)?.sequence ?? 0,
       countryId: answer.countryId,
       countryName: answer.country.name,
       isoCode: answer.country.isoCode,
+      promptText: promptFor(definition, answer.country, factsByCountryId).promptText,
       correctAnswer: expectedAnswerFor(definition, answer.country),
     }));
 

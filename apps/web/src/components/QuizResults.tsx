@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import type { SessionResults } from '@cartomancer/shared';
+import type { MissedQuestion, QuizCategory, SessionResults } from '@cartomancer/shared';
+import { Flag } from './Flag';
 import { IconArrowRight, IconCircleCheck, IconFlame } from './icons';
 import { loadQuizResults, startQuizSession } from '@/lib/client-api';
 import { preloadQuestionFlags } from '@/lib/flag-art';
@@ -49,14 +50,24 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
             total,
             percentCorrect: total === 0 ? 0 : Math.round((score / total) * 100),
             newlyLearned: [],
+            // The guest's questions are right here in sessionStorage, so the
+            // missed rows get the same prompt the api builds for a signed-in
+            // round rather than a thinner version of it.
             missed: stored.answers
               .filter((answer) => !answer.wasCorrect)
-              .map((answer) => ({
-                countryId: answer.countryId,
-                countryName: answer.correctCountryName,
-                isoCode: answer.correctIsoCode,
-                correctAnswer: answer.correctAnswer,
-              })),
+              .map((answer) => {
+                const question = stored.session.questions.find(
+                  (candidate) => candidate.countryId === answer.countryId,
+                );
+                return {
+                  sequence: question?.sequence ?? 0,
+                  countryId: answer.countryId,
+                  countryName: answer.correctCountryName,
+                  isoCode: answer.correctIsoCode,
+                  promptText: question?.promptText ?? '',
+                  correctAnswer: answer.correctAnswer,
+                };
+              }),
             dayStreak: null,
             isGuest: true,
           });
@@ -156,10 +167,11 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
           <span className="section-label">Missed this round</span>
           <div className="missed-list">
             {results.missed.map((missed) => (
-              <div className="missed-row" key={missed.countryId}>
-                <span>{missed.countryName}</span>
-                <span className="missed-answer">{missed.correctAnswer}</span>
-              </div>
+              <MissedRow
+                key={`${missed.sequence}-${missed.countryId}`}
+                missed={missed}
+                category={results.quizType.category}
+              />
             ))}
           </div>
         </div>
@@ -177,5 +189,51 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
         </Link>
       </div>
     </main>
+  );
+}
+
+/**
+ * One missed question: what was asked, and what the answer was.
+ *
+ * Every row used to be `countryName — correctAnswer`, which for the
+ * `*_to_country` quizzes is the same string twice ("Brazil — Brazil") and never
+ * showed the clue or the flag that was actually missed (#37).
+ *
+ * The three shapes follow what the question was, not which way round it ran:
+ *  - flags: the flag, either direction — it is the thing that was not
+ *    recognised, and at 18px it was a bullet rather than a picture
+ *  - trivia: the clue needs its own line; at 13.5px it wraps to three on a
+ *    phone, and a right-aligned answer beside it would be unreadable
+ *  - capitals: prompt and answer on one line, which is already right for
+ *    country → capital and fixes capital → country ("Paris — France")
+ */
+function MissedRow({ missed, category }: { missed: MissedQuestion; category: QuizCategory }) {
+  if (category === 'flags') {
+    return (
+      <div className="missed-row">
+        <span className="missed-flag">
+          <Flag isoCode={missed.isoCode} label={missed.countryName} variant="fill" lazy />
+        </span>
+        <span>{missed.countryName}</span>
+      </div>
+    );
+  }
+
+  if (category === 'trivia') {
+    return (
+      <div className="missed-row missed-row--stacked">
+        <span className="missed-clue">{missed.promptText}</span>
+        <span className="missed-answer-line">
+          Answer: <strong>{missed.correctAnswer}</strong>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="missed-row">
+      <span>{missed.promptText || missed.countryName}</span>
+      <span className="missed-answer">{missed.correctAnswer}</span>
+    </div>
   );
 }
