@@ -140,12 +140,13 @@ job's short SHA to the web image as a `GIT_SHA` build arg, and the home screen's
 last line shows it, linking to the commit. The value is the same one the image
 is tagged with — from the same job output, not a second truncation — so the
 footer and the tag cannot drift, and a bug report from a phone names its build.
-The `ARG`/`ENV` pair is the last thing in the Dockerfile's runtime stage, since
-it changes every build and every layer after it is a cache miss — and after it
-there is only `USER` and `EXPOSE`, so the `COPY` layers above keep their cache.
-It could never have reached `pnpm install` or `next build`, whatever its
-position: an `ARG` is scoped to the stage that declares it, and the build stage
-never mentions `GIT_SHA`.
+The `ARG`/`ENV` pair sits below the `COPY` layers in the Dockerfile's runtime
+stage so those keep their cache; only `USER`, `EXPOSE` and `CMD` follow it. It
+is deliberately *not* a global `ARG` above the first `FROM`, which is the
+placement that would cost something: shared into the build stage, a value that
+changes every commit joins that stage's cache key and `pnpm install` and
+`next build` stop being cached. Declared only in `runtime`, it cannot reach
+them.
 A build step asserts that the loaded image really carries it: a typo in the
 build arg would otherwise ship a perfectly good image whose footer reads `dev`,
 which is also what a local run shows.

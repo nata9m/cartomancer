@@ -67,13 +67,17 @@ COPY --from=build --chown=1000:1000 /repo/apps/web/.next/static ./.next/static
 COPY --from=build --chown=1000:1000 /repo/apps/web/public ./public
 
 # The commit this image was built from, shown in the home screen's footer:
-# there is no .git here to read it from at runtime. Last in the stage on
-# purpose — it changes every build, so every layer after it is a cache miss,
-# which here is nothing but USER and EXPOSE. The COPY layers above it keep
-# their cache. The build stage is untouched either way: an ARG is scoped to the
-# stage that declares it, and `build` never mentions GIT_SHA, so `pnpm install`
-# and `next build` could not be invalidated by this no matter where it sat. The
-# workflow passes the same seven characters the image is tagged with.
+# there is no .git here to read it from at runtime. The workflow passes the same
+# seven characters the image is tagged with.
+#
+# Declared here, in the runtime stage, and deliberately NOT as a global ARG
+# above the first FROM. That is the placement that would actually cost
+# something: shared into `build`, a value that changes every commit joins that
+# stage's cache key, and `pnpm install` and `next build` stop being cached.
+# Because `build` never mentions GIT_SHA, it cannot reach them today.
+#
+# Within this stage it sits below the COPY layers so they keep their own cache;
+# only USER, EXPOSE and CMD follow it.
 ARG GIT_SHA=dev
 ENV GIT_SHA=$GIT_SHA
 
