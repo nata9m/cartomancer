@@ -177,14 +177,16 @@ export interface CountryRef {
   region: Region;
   difficulty: Difficulty;
   /**
-   * Accepted alternatives, for searching rather than showing: the column holds
-   * both other country names ("Holland") and the second capital of states that
-   * have one ("Cape Town"), with nothing to tell them apart — see the alias
-   * note in the README. Matching on all of them is right for a lookup box;
-   * printing them as "also known as" would call Cape Town another name for
-   * South Africa.
+   * Other names for the country ("Holland", "Burma"), and for its capital
+   * ("Cape Town", "Praha"). Two lists since #35, so each can be both searched
+   * and shown: printing a name alias says "also known as" and printing a
+   * capital alias says "also", and neither can now claim Cape Town is another
+   * name for South Africa.
    */
-  aliases: string[];
+  nameAliases: string[];
+  capitalAliases: string[];
+  /** Searchable only: the famous city that is not the capital — see CountrySeed. */
+  searchAliases: string[];
 }
 
 export interface ProgressSummary {

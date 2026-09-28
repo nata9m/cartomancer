@@ -49,7 +49,9 @@ async function seedCountries(): Promise<void> {
       capital: country.capital,
       region: country.region,
       difficulty: country.difficulty,
-      aliases: country.aliases,
+      nameAliases: country.nameAliases ?? [],
+      capitalAliases: country.capitalAliases ?? [],
+      searchAliases: country.searchAliases ?? [],
     };
     await prisma.country.upsert({
       where: { isoCode: country.isoCode },

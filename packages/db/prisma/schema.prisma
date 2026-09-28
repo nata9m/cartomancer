@@ -30,7 +30,14 @@ model Country {
   region     String
   difficulty String
   isoCode    String   @unique @map("iso_code") @db.Char(2)
-  aliases    String[] @default([])
+  /// Other names for the country; see the notes on CountrySeed (#35).
+  nameAliases    String[] @default([]) @map("name_aliases")
+  /// Other names for the capital — a second seat of government or another
+  /// spelling, never a city that is merely famous (#35).
+  capitalAliases String[] @default([]) @map("capital_aliases")
+  /// The famous city that is neither: searchable in the register, never an
+  /// accepted answer and never shown (#35).
+  searchAliases  String[] @default([]) @map("search_aliases")
 
   facts            CountryFact[]
   progress         Progress[]

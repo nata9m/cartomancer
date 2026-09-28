@@ -28,13 +28,17 @@ export function CountryRegister({
   const [query, setQuery] = useState(initialQuery);
 
   /**
-   * Each row's haystack, built once: name, capital and aliases, all normalised.
+   * Each row's haystack, built once: name, capital and all three alias lists,
+   * all normalised.
    *
    * normalizeAnswer is the api's own answer matcher, so the box forgives what
    * the quiz forgives — accents ("Yaounde" finds Yaoundé), punctuation, "St"
-   * for "Saint". Aliases are in here because both kinds earn their place in a
-   * lookup: "Holland" and "Cape Town" are each things someone might type. They
-   * are searched, never shown — see the note on CountryRef.
+   * for "Saint". Every alias list is in here because a lookup box is a
+   * different question from a quiz: "Holland", "Cape Town" and even "Istanbul"
+   * are all things someone might type to find a country, and finding one
+   * asserts nothing about it — which is why searchAliases is searched here and
+   * accepted nowhere (#35). The country's own page shows the other two lists;
+   * a 195-row list is not the place to.
    */
   const rows = useMemo(
     () =>
@@ -50,7 +54,13 @@ export function CountryRegister({
         .map((country) => ({
           country,
           haystack: normalizeAnswer(
-            [country.name, country.capital, ...country.aliases].join(' '),
+            [
+              country.name,
+              country.capital,
+              ...country.nameAliases,
+              ...country.capitalAliases,
+              ...country.searchAliases,
+            ].join(' '),
           ),
         })),
     [countries],

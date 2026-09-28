@@ -165,6 +165,85 @@ describe('fuzzy answer matching', () => {
   });
 });
 
+describe('aliases are scored against the domain they name (#35)', () => {
+  const check = async (quizTypeKey: string, countryName: string, answer: string) => {
+    const country = await prisma.country.findFirstOrThrow({ where: { name: countryName } });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/answers/check',
+      payload: { quizTypeKey, countryId: country.id, answer },
+    });
+    return response.json();
+  };
+
+  // One column used to hold every alias, and the matcher read all of it
+  // whichever way the question was asked — so a geography trainer said the
+  // capital of Australia was Oz.
+  const wrongNow: [string, string, string][] = [
+    ['capitals-c2cap-type', 'Israel', 'Tel Aviv'],
+    ['capitals-c2cap-type', 'United Arab Emirates', 'Dubai'],
+    ['capitals-c2cap-type', 'Turkey', 'Istanbul'],
+    ['capitals-c2cap-type', 'Switzerland', 'Zurich'],
+    ['capitals-c2cap-type', 'Tanzania', 'Dar es Salaam'],
+    // A country-name alias is not an answer to a capital question…
+    ['capitals-c2cap-type', 'Australia', 'Oz'],
+    ['capitals-c2cap-type', 'Netherlands', 'Holland'],
+    // …and a capital is not an answer to a country question.
+    ['capitals-cap2c-type', 'South Africa', 'Cape Town'],
+    ['flags-flag2c-type', 'Netherlands', 'The Hague'],
+  ];
+
+  for (const [quizTypeKey, countryName, answer] of wrongNow) {
+    it(`"${answer}" is not the answer to ${countryName} in ${quizTypeKey}`, async () => {
+      const result = await check(quizTypeKey, countryName, answer);
+      assert.equal(result.wasCorrect, false, `${answer} should not be accepted here`);
+      assert.equal(result.matchedBy, 'none');
+    });
+  }
+
+  // The same column carries the genuinely correct cases, which is why this
+  // could never be fixed by dropping entries.
+  const stillRight: [string, string, string][] = [
+    ['capitals-c2cap-type', 'South Africa', 'Cape Town'],
+    ['capitals-c2cap-type', 'Bolivia', 'La Paz'],
+    ['capitals-c2cap-type', 'Netherlands', 'The Hague'],
+    ['capitals-c2cap-type', 'Malaysia', 'Putrajaya'],
+    ['capitals-c2cap-type', 'Czechia', 'Praha'],
+    ['capitals-c2cap-type', 'Kazakhstan', 'Nur-Sultan'],
+    ['capitals-cap2c-type', 'Czechia', 'Czech Republic'],
+    ['flags-flag2c-type', "Côte d'Ivoire", 'Ivory Coast'],
+    ['flags-flag2c-type', 'Myanmar', 'Burma'],
+    ['flags-flag2c-type', 'Netherlands', 'Holland'],
+  ];
+
+  for (const [quizTypeKey, countryName, answer] of stillRight) {
+    it(`"${answer}" is still right for ${countryName} in ${quizTypeKey}`, async () => {
+      const result = await check(quizTypeKey, countryName, answer);
+      assert.equal(result.wasCorrect, true, `${answer} should still be accepted here`);
+      assert.equal(result.matchedBy, 'alias');
+    });
+  }
+
+  it('serves all three alias lists to the register, and keeps them apart', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/countries?region=Africa' });
+    const body = response.json();
+    const southAfrica = body.countries.find((c: { name: string }) => c.name === 'South Africa');
+    assert.deepEqual(southAfrica.nameAliases, ['RSA']);
+    assert.deepEqual(southAfrica.capitalAliases, ['Cape Town', 'Bloemfontein']);
+    assert.deepEqual(southAfrica.searchAliases, []);
+    const tanzania = body.countries.find((c: { name: string }) => c.name === 'Tanzania');
+    assert.deepEqual(tanzania.searchAliases, ['Dar es Salaam']);
+  });
+
+  it('never accepts a search-only alias, in either direction', async () => {
+    // The register can find Turkey by "Istanbul"; a quiz may not accept it.
+    for (const quizTypeKey of ['capitals-c2cap-type', 'capitals-cap2c-type', 'flags-flag2c-type']) {
+      const result = await check(quizTypeKey, 'Turkey', 'Istanbul');
+      assert.equal(result.wasCorrect, false, `${quizTypeKey} accepted Istanbul`);
+    }
+  });
+});
+
 describe('signed-in quiz session', () => {
   it('records answers, streaks and learned state, and rotates questions', async () => {
     const quizTypeKey = 'capitals-c2cap-type';
