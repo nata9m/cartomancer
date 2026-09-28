@@ -515,14 +515,15 @@ involves:
   capitals. Six countries (Djibouti, Singapore, Luxembourg, Monaco, San Marino,
   Vatican City) still show one name twice on a capitals round, because their
   capital really does share their name.
-- **`PlayPicker` is the start screen for a one-mode game**, shared by Fun facts
-  and Countries: chips, a muted line saying what the round will be, an optional
-  note, and one Play button. `ModePicker` stays separate — Capitals and Flags
-  have several modes to choose between, and a list of cards is a different
-  screen. Play is `.button-primary`, the same control as "Try again" on the
-  results screens, and it sits where a mode picker puts its first card so all
-  four start screens line up (#36 — it was briefly a one-off hybrid: card
-  layout with a primary button's fill, reading as neither).
+- **`PlayPicker` is the start screen for a one-mode game**, which since #49 is
+  Countries alone: chips, a muted line saying what the round will be, an
+  optional note, and one Play button. Play is `.button-primary`, the same
+  control as "Try again" on the results screens, and it sits where a mode picker
+  puts its first card so all four start screens line up (#36 — it was briefly a
+  one-off hybrid: card layout with a primary button's fill, reading as neither).
+  Fun facts shared it while its multiple-choice mode was a chip (#42); the chip
+  made the one screen with two ways to play look unlike the two others that have
+  them, so the mode went back to being a place you tap.
 - **Flag artwork is fetched a question ahead.** An `<img>` only starts loading
   once it is rendered, so every question's flags used to arrive a round-trip
   after the question — 160–500ms on an emulated Slow 4G link, worst in
@@ -543,10 +544,13 @@ involves:
 - **Region assignment** follows the UN geoscheme for the transcontinental cases:
   Turkey, Cyprus, Georgia, Armenia, Azerbaijan and Kazakhstan are in Asia,
   Russia in Europe.
-- **Mode pickers.** Capitals, Flags and Fun facts each get a mode-select screen
-  (two directions × two formats, and three lengths respectively). Countries
-  starts a recall round straight from the home card, since the region chip on
-  that screen is its only input.
+- **Mode pickers.** Capitals, Flags and Fun facts each get a mode-select screen:
+  two directions × two formats for Capitals, three cards for Flags, and one card
+  per format for Fun facts. Fun facts is the only one that shows the question-
+  count chip, and the only one whose cards carry a start hook — its two modes
+  share one clue rotation, so the round that starts records what it drew (#42,
+  #49). Countries starts a recall round from `PlayPicker`, since the region chip
+  is its only input.
 - **Auth.js sessions are JWTs**, not database rows, because the api is a
   separate service that is handed the user id by the proxy. The adapter's
   `Session` table exists anyway so switching is a config change.
