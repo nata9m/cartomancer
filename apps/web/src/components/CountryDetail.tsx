@@ -14,7 +14,8 @@ import { IconArrowLeft } from './icons';
  *
  * Deliberately five things. The register is for looking a country up, not for
  * reading an encyclopedia entry, and every extra row is one more thing to scan
- * past on a phone. Area, currency, calling code and the rest are a line each in
+ * past on a phone — which is why the attribution the population and language
+ * licences ask for lives on /credits rather than under all 195 of these (#47). Area, currency, calling code and the rest are a line each in
  * the generator if they are ever wanted.
  *
  * A server component with nothing to fetch — every field is compiled in, from
@@ -99,13 +100,6 @@ export function CountryDetail({
           </div>
         </div>
       ) : null}
-
-      {/* Both source licences ask for attribution. The capital, the flag and the
-          clues are the app's own, so only the two generated fields are credited
-          here. */}
-      <p className="detail-credit">
-        Population from the World Bank, languages from mledoze/countries.
-      </p>
     </main>
   );
 }
