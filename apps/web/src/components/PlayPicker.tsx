@@ -9,11 +9,11 @@ import type { Filters } from '@/lib/filters';
  * The start screen for a game with one mode: back arrow and title, the filter
  * chips it cares about, what the round will be, and one Play button.
  *
- * Shared by Fun facts and Countries because #28 asked for it explicitly — the
- * two screens are the same shape, and keeping them one component is what stops
- * the chips drifting to a different place on each. ModePicker is still the
- * separate thing it was: Capitals and Flags have several modes to choose
- * between, and a list of cards is not this.
+ * Countries is the only screen with one mode, so it is the only screen with a
+ * Play button. It was shared with Fun facts until #49 sent that one back to
+ * ModePicker, where the games with more than one way to play live — but the
+ * component stays general, because #28 asked for one shape for this kind of
+ * screen rather than a bespoke /recall.
  *
  * The caller owns starting the round. This knows nothing about sessions.
  */
@@ -23,7 +23,6 @@ export function PlayPicker({
   filters,
   showDifficulty = false,
   showQuestionCount = false,
-  showMode = false,
   note,
   pending,
   error,
@@ -35,7 +34,6 @@ export function PlayPicker({
   filters: Filters;
   showDifficulty?: boolean;
   showQuestionCount?: boolean;
-  showMode?: boolean;
   /** Optional muted line under the chips, e.g. how big the pool is. */
   note?: string;
   pending: boolean;
@@ -55,7 +53,6 @@ export function PlayPicker({
         filters={filters}
         showDifficulty={showDifficulty}
         showQuestionCount={showQuestionCount}
-        showMode={showMode}
       />
 
       <p className="screen-note">{description}</p>

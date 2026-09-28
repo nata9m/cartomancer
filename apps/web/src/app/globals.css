@@ -314,8 +314,15 @@ a {
 
 /* ── Filter chips ───────────────────────────────────────────────────────── */
 
+/* Wraps rather than scrolls: a chip that is off the edge of a row is a chip
+   nobody knows is there, which is how the count chip read as "20 ques…" while
+   Fun facts carried four of them (#49). Three fit on one line at 390px, so
+   nothing wraps today and everything below the row stays where it was — the
+   wrap is what happens when a future chip, or a long region name, no longer
+   fits. overflow-x stays for the same reason: belt for the brace. */
 .filter-chips {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 2px;
