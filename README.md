@@ -437,7 +437,9 @@ involves:
   Canada's bands — a real bug on a screen that asks you to recognise the flag.
   These keep each flag's official proportions; the answer tiles stay a uniform
   4:3 grid and letterbox the flag inside. Re-run the script after changing the
-  country list, and do not hand-edit the files.
+  country list, and do not hand-edit the files. The renderings are Wikimedia
+  Commons' and in the public domain, and are credited on `/credits` with the
+  two data sources.
 - **Form fields are never smaller than 16px.** iOS WebKit zooms the page in on
   a focused field below that and does not zoom back out, which left the recall
   answer input unusable on an iPhone. The base `input`/`select` rule in
@@ -491,7 +493,11 @@ involves:
   already in `countries.ts` and `facts.ts`, so the generated
   `country-details.ts` holds just population (World Bank, via
   `datasets/population`, CC BY 4.0) and languages (mledoze/countries, ODbL) —
-  both credited on the page, as both licences ask. It is committed rather than
+  both credited on `/credits`, as both licences ask. The credit used to sit
+  under every country, where it read as developer notes; #47 moved it to one
+  page, reached from the "Sources" link beside the build number in the home
+  footer. Dropping the attribution instead would have to be a deliberate
+  decision written down here, not a side effect of tidying a page. It is committed rather than
   fetched per request, so a page is instant, works whether or not either service
   is up, and a changed figure shows in a PR diff; refresh it with
   `node packages/shared/scripts/fetch-country-details.mjs`, which fails loudly

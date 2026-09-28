@@ -1013,10 +1013,19 @@ input.answer-input {
   letter-spacing: 0.04em;
 }
 
-/* `a` inherits colour and drops underlines globally, which would leave this one
-   looking like the text above it. A hairline underline says it is tappable
-   without making a version string shout. */
+/* `a` inherits colour and drops underlines globally, which would leave these
+   looking like the text above them. A hairline underline says they are tappable
+   without making a version string shout.
+
+   The padding is hit area, not spacing: 10px text gives an 11px-tall target,
+   and one of these is now the only way to reach /credits (#47). The negative
+   margins hand the space straight back, so the footer sits where it did — the
+   larger box overlaps the line above, which is plain text and has nothing to
+   miss. */
 .footer-note__commit a {
+  display: inline-block;
+  padding: 6px 4px;
+  margin: -6px -4px;
   text-decoration: underline;
   text-decoration-color: var(--border-strong);
   text-underline-offset: 2px;
@@ -1235,10 +1244,17 @@ input.register-search {
   margin-left: auto;
 }
 
-.detail-credit {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--text-muted);
+/* ── Sources (/credits) ─────────────────────────────────────────────────── */
+
+/* The one place in the app where a link sits inside a sentence. `a` globally
+   inherits colour and drops its underline — right for rows, chips and cards,
+   which are links in their entirety — so a link in prose has to say so itself,
+   the same way the footer's commit link does. */
+.credit-link {
+  color: var(--text-accent);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
 }
 
 /* ── Learned lists (/learned/:category) ─────────────────────────────────── */

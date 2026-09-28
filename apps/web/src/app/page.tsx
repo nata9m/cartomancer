@@ -76,6 +76,12 @@ export default async function HomePage() {
       <footer className="footer-note">
         <p>Based on the 195 UN member and observer states</p>
         <p className="footer-note__commit">
+          {/* Where the borrowed data is credited (#47). It sits beside the build
+              number because both are the same kind of small print, and because
+              the alternative — a credit line under all 195 country pages — read
+              as developer notes on a page meant for looking a country up. */}
+          <Link href="/credits">Sources</Link>
+          {' · '}
           {commit === DEV_COMMIT ? (
             commit
           ) : (
