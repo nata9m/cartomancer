@@ -14,6 +14,9 @@ import { countryOfTheDay } from '@/lib/country-of-the-day';
  * Tapping it opens that country's page (#38). It used to open the register
  * filtered to the name, which was the closest thing to a country page there
  * was; now that there is a real one, the card goes straight there.
+ *
+ * `?from=home` is how that page knows its back arrow should return here rather
+ * than to the register, a list the player never visited (#48).
  */
 export function CountryOfTheDay() {
   const pick = countryOfTheDay();
@@ -24,7 +27,7 @@ export function CountryOfTheDay() {
   return (
     <Link
       className="card cotd"
-      href={`/countries/${country.isoCode.toLowerCase()}`}
+      href={`/countries/${country.isoCode.toLowerCase()}?from=home`}
       aria-label={`Country of the day: ${country.name}, capital ${country.capital}. Open its page.`}
     >
       {/* Sized in explicit pixels with object-fit: contain, so a 1:2 or square

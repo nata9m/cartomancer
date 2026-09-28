@@ -3,6 +3,18 @@ import { COUNTRIES, COUNTRY_DETAILS, COUNTRY_FACTS } from '@cartomancer/shared';
 import { CountryDetail } from '@/components/CountryDetail';
 
 /**
+ * Where the back arrow goes when the link said where it came from (#48).
+ *
+ * A closed list, not a URL on the query string: `?from=` is whatever anyone
+ * types, and an arrow that follows it would happily walk someone off to a
+ * stranger's site. Anything unrecognised falls through to the register, which
+ * is where a directly-opened or shared link lands.
+ */
+const ENTRY_POINTS: Record<string, { href: string; label: string }> = {
+  home: { href: '/', label: 'Back to home' },
+};
+
+/**
  * /countries/br — one country's page, reached from the register or from the
  * Country of the day card.
  *
@@ -30,12 +42,22 @@ export default async function CountryDetailPage({
   // on the back arrow, so returning from a country lands on the list as it was
   // left rather than at the top of all 195.
   const params_ = await searchParams;
+  const first = (key: string): string | undefined =>
+    Array.isArray(params_[key]) ? params_[key][0] : params_[key];
   const back = new URLSearchParams();
   for (const key of ['q', 'region'] as const) {
-    const value = Array.isArray(params_[key]) ? params_[key][0] : params_[key];
+    const value = first(key);
     if (value) back.set(key, value);
   }
   const query = back.toString();
+
+  // An explicit href rather than router.back(), so the arrow still works on a
+  // shared link or a fresh tab, where there is no history to go back to.
+  // hasOwn, not a bare lookup: `?from=constructor` otherwise reads a function
+  // off Object.prototype. It falls through to the register either way, but by
+  // accident rather than because this said so.
+  const from = first('from') ?? '';
+  const entryPoint = Object.hasOwn(ENTRY_POINTS, from) ? ENTRY_POINTS[from] : undefined;
 
   const facts = COUNTRY_FACTS.filter((entry) => entry.countryName === country.name).map(
     (entry) => entry.fact,
@@ -46,7 +68,8 @@ export default async function CountryDetailPage({
       country={country}
       detail={detail}
       facts={facts}
-      backHref={query ? `/countries?${query}` : '/countries'}
+      backHref={entryPoint?.href ?? (query ? `/countries?${query}` : '/countries')}
+      backLabel={entryPoint?.label ?? 'Back to all countries'}
     />
   );
 }
