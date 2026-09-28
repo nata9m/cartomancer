@@ -27,12 +27,16 @@ export function CountryDetail({
   detail,
   facts,
   backHref,
+  backLabel,
 }: {
   country: CountrySeed;
   detail: CountryDetailData;
   facts: string[];
-  /** Back to the register as it was left — see the note in the page. */
+  /** Where the back arrow goes: the register as it was left, or home when the
+   *  Country of the day card opened this page (#48) — see the note in the page. */
   backHref: string;
+  /** Said out loud, so the arrow names the place it actually returns to. */
+  backLabel: string;
 }) {
   // Both alias lists are printable since #35, each saying only what it means:
   // "also known as" for another name of the country, "also" after the capital
@@ -62,7 +66,7 @@ export function CountryDetail({
   return (
     <main className="app-shell">
       <div className="screen-header">
-        <Link className="icon-button" href={backHref} aria-label="Back to all countries">
+        <Link className="icon-button" href={backHref} aria-label={backLabel}>
           <IconArrowLeft size={19} stroke={1.9} />
         </Link>
         <h1 className="screen-title">{country.name}</h1>
