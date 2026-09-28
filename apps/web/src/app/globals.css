@@ -1346,6 +1346,15 @@ input.register-search {
   color: var(--text-secondary);
 }
 
+/* A failed request that the player can do something about (#58): the message
+   and its Try again, stacked where the answer area ends. Not the full-screen
+   error box — the round is still there, and it should look like it. */
+.retry-note {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .error-note {
   padding: 12px;
   border-radius: var(--radius);

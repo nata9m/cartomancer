@@ -524,6 +524,20 @@ involves:
   Fun facts shared it while its multiple-choice mode was a chip (#42); the chip
   made the one screen with two ways to play look unlike the two others that have
   them, so the mode went back to being a place you tap.
+- **One failed request does not end a round.** A TLS/ECH handshake failure on a
+  single `POST /bff/sessions/:id/answers` used to replace the whole quiz with
+  Chrome's "Failed to fetch" and a link home, losing every answer given so far
+  (#58). Three things changed. `client-api.ts` retries a *transport* failure
+  twice (300ms, 900ms) — a 4xx or 5xx is an answer and is never retried, and a
+  POST only retries if it says so, which is why starting a session does not: a
+  second one would be a second round. If it still fails, the question stays on
+  screen with the tapped option still marked and the typed answer still there,
+  under an inline message and a Try again button. And answering twice is now a
+  *replay* rather than a 409: the api returns what it recorded, writes nothing,
+  and scores nothing twice, because a request can commit and still never reach
+  the browser. `matchedBy: 'replay'` is how a response says it is that reply.
+  The infra half of #58 — ECH configs advertised for the zone that the edge
+  cannot honour — lives in the cluster repo, not here.
 - **Flag artwork is fetched a question ahead.** An `<img>` only starts loading
   once it is rendered, so every question's flags used to arrive a round-trip
   after the question — 160–500ms on an emulated Slow 4G link, worst in

@@ -11,7 +11,7 @@ import {
 import type { Country, PrismaClient } from '@cartomancer/db';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { badRequest, conflict, forbidden, notFound } from '../errors.js';
+import { badRequest, forbidden, notFound } from '../errors.js';
 import { checkAnswer } from '../lib/matching.js';
 import { loadSummary, newlyLearnedInSession, recordProgress } from '../lib/progress.js';
 import {
@@ -264,13 +264,44 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       where: { id: question.countryId },
     });
 
+    // Answering twice is a retry, not a conflict (#58). A request can commit
+    // here and still never reach the browser — a dropped connection, a TLS
+    // failure on the way back — and the only thing the player can do is send it
+    // again. So a repeat returns what was recorded, writes nothing, and scores
+    // nothing twice: the row, the streak and the day's activity all stay as the
+    // first call left them.
     const already = await app.prisma.sessionAnswer.findUnique({
       where: {
         sessionId_userId_countryId: { sessionId: session.id, userId, countryId: country.id },
       },
     });
     if (already) {
-      throw conflict(`Question ${body.sequence} has already been answered`);
+      const recorded = await app.prisma.progress.findUnique({
+        where: {
+          userId_countryId_quizTypeId: {
+            userId,
+            countryId: country.id,
+            quizTypeId: session.quizTypeId,
+          },
+        },
+      });
+      const replay: AnswerResult = {
+        wasCorrect: already.wasCorrect,
+        correctAnswer: expectedAnswerFor(definition, country),
+        correctCountryId: country.id,
+        correctCountryName: country.name,
+        correctIsoCode: country.isoCode,
+        // Not re-matched: the stored row knows whether the answer was right,
+        // not how it got there, and guessing between exact and alias would be
+        // telemetry that says something the server never checked.
+        matchedBy: 'replay',
+        currentStreak: recorded?.currentStreak ?? 0,
+        isLearned: recorded?.isLearned ?? false,
+        // The crossing happened on the first call. This one reports state, not
+        // a transition, so the "now learned" line is not shown a second time.
+        newlyLearned: false,
+      };
+      return replay;
     }
 
     const outcome = await checkAnswer(app.prisma, {
