@@ -33,7 +33,14 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   const isGuest = isGuestSessionId(sessionId);
 
   const [session, setSession] = useState<QuizSession | null>(null);
+  /** Fatal: there is no quiz to show, so the screen has nothing else to be. */
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Recoverable: the round is intact, one request failed (#58). It shows under
+   * the question with a Try again button rather than replacing the screen —
+   * losing twelve answered questions to one dropped connection is the bug.
+   */
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<Phase>('answering');
   const [typed, setTyped] = useState('');
@@ -43,6 +50,8 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   const [busy, setBusy] = useState(false);
   const askedAt = useRef<number>(Date.now());
   const inputRef = useRef<HTMLInputElement | null>(null);
+  /** What Try again does: whichever call just failed, with its arguments. */
+  const retry = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,6 +122,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
         return;
       }
       setBusy(true);
+      setSubmitError(null);
       try {
         const outcome = isGuest
           ? await checkAnswerAsGuest({
@@ -150,13 +160,23 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
           });
         }
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : 'Could not check that answer');
+        // The question stays on screen with what was chosen or typed still
+        // there, so Try again is one tap and nothing has to be redone.
+        retry.current = () => answerRef.current(value, gaveUp);
+        setSubmitError(cause instanceof Error ? cause.message : 'Could not check that answer');
       } finally {
         setBusy(false);
       }
     },
     [busy, isGuest, phase, question, session],
   );
+
+  // Try again re-runs the newest version of this callback rather than the one
+  // that happened to fail, which would hold a stale question in its closure.
+  const answerRef = useRef(answer);
+  useEffect(() => {
+    answerRef.current = answer;
+  }, [answer]);
 
   async function next(): Promise<void> {
     if (!session) return;
@@ -167,16 +187,21 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
       setTyped('');
       setChosenLabel(null);
       setResult(null);
+      setSubmitError(null);
       return;
     }
     setBusy(true);
+    setSubmitError(null);
     try {
       if (!isGuest) {
         await finishQuizSession(session.id);
       }
       router.push(`/quiz/${session.id}/results`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not finish the quiz');
+      // The last question keeps its reveal, so Try again finishes the round
+      // rather than restarting it.
+      retry.current = () => next();
+      setSubmitError(cause instanceof Error ? cause.message : 'Could not finish the quiz');
       setBusy(false);
     }
   }
@@ -244,8 +269,11 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
             // The tap has to show before the check comes back: the reveal waits
             // on a network round-trip, and until now nothing at all changed in
             // between, so a tap on a slow connection read as unregistered.
-            const isPending = busy && phase === 'answering' && option.label === chosenLabel;
-            const isWaiting = busy && phase === 'answering' && chosenLabel !== null && !isPending;
+            // Still "the one you tapped" after a failed submission, so Try
+            // again is visibly about that option rather than a fresh guess.
+            const isChosen = phase === 'answering' && option.label === chosenLabel;
+            const isPending = isChosen && (busy || submitError !== null);
+            const isWaiting = busy && phase === 'answering' && chosenLabel !== null && !isChosen;
             const classes = [
               'option',
               option.isoCode ? 'option--flag' : '',
@@ -264,7 +292,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
                 className={classes}
                 // Same news for a screen reader as the accent tile is for
                 // everyone else: this one is being checked.
-                aria-busy={isPending || undefined}
+                aria-busy={(busy && isChosen) || undefined}
                 disabled={phase === 'revealed' || busy}
                 onClick={() => {
                   setChosenLabel(option.label);
@@ -341,6 +369,23 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
           ) : null}
         </form>
       )}
+
+      {submitError ? (
+        <div className="retry-note">
+          <p className="error-note">{submitError}</p>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={busy}
+            onClick={() => {
+              const again = retry.current;
+              if (again) void again();
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      ) : null}
 
       {phase === 'revealed' && result ? (
         <>

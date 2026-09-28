@@ -35,8 +35,13 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
   const [recalled, setRecalled] = useState<Recalled[]>([]);
   const [typed, setTyped] = useState('');
   const [note, setNote] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
+  /** Fatal: there is no round to show. */
   const [error, setError] = useState<string | null>(null);
+  /** Recoverable: the list of recalled countries is intact, one call failed (#58). */
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** What Try again does: whichever call just failed, with its arguments. */
+  const retry = useRef<(() => Promise<void>) | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -73,6 +78,7 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
       return;
     }
     setBusy(true);
+    setSubmitError(null);
     try {
       const outcome = isGuest
         ? await checkRecallGuessAsGuest({
@@ -96,7 +102,9 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
       }
       setTyped('');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not check that guess');
+      // The typed guess stays in the box, so Try again sends the same word.
+      retry.current = () => guess(value);
+      setSubmitError(cause instanceof Error ? cause.message : 'Could not check that guess');
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -106,13 +114,15 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
   async function finish(): Promise<void> {
     if (!session) return;
     setBusy(true);
+    setSubmitError(null);
     try {
       if (!isGuest) {
         await finishRecallSession(session.id);
       }
       router.push(`/recall/${session.id}/results`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not finish the round');
+      retry.current = () => finish();
+      setSubmitError(cause instanceof Error ? cause.message : 'Could not finish the round');
       setBusy(false);
     }
   }
@@ -185,6 +195,23 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
       <p className={`inline-note${note?.kind === 'error' ? ' inline-note--error' : ''}`}>
         {note?.text ?? ''}
       </p>
+
+      {submitError ? (
+        <div className="retry-note">
+          <p className="error-note">{submitError}</p>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={busy}
+            onClick={() => {
+              const again = retry.current;
+              if (again) void again();
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      ) : null}
 
       {recalled.length > 0 ? (
         <div className="stack stack--tight">

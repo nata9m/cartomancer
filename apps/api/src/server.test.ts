@@ -327,14 +327,74 @@ describe('signed-in quiz session', () => {
     assert.equal(demotionResults.missed.length, 1);
     assert.ok(demotionResults.missed[0].correctAnswer.length > 0);
 
-    // Re-answering the same question would farm a streak off one prompt.
+    // Re-answering the same question replays what was recorded rather than
+    // farming a streak off one prompt (#58).
     const repeat = await app.inject({
       method: 'POST',
       url: `/api/sessions/${demotion.id}/answers`,
       headers: userHeaders(),
       payload: { sequence: 1, answer: 'anything' },
     });
-    assert.equal(repeat.statusCode, 409);
+    assert.equal(repeat.statusCode, 200);
+    const replay = repeat.json();
+    assert.equal(replay.matchedBy, 'replay');
+    assert.equal(replay.wasCorrect, false, 'the recorded answer was wrong, and stays wrong');
+    assert.equal(replay.currentStreak, 0);
+    assert.equal(replay.newlyLearned, false);
+  });
+
+  it('replays a repeated answer instead of scoring it twice', async () => {
+    const quizTypeKey = 'capitals-c2cap-type';
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: quizTypeKey } });
+    const session = await startSession(quizTypeKey, { questionCount: 1 });
+    const question = session.questions[0];
+    const country = await prisma.country.findUniqueOrThrow({ where: { id: question.countryId } });
+
+    const first = await answer(session.id, question.sequence, country.capital);
+    assert.equal(first.wasCorrect, true);
+    const streak = first.currentStreak;
+
+    // The same POST again — what a retry sends when the first response never
+    // made it back to the browser.
+    const again = await answer(session.id, question.sequence, country.capital);
+    assert.equal(again.wasCorrect, true, 'the recorded answer is reported again');
+    assert.equal(again.correctAnswer, first.correctAnswer);
+    assert.equal(again.correctCountryId, first.correctCountryId);
+    assert.equal(again.matchedBy, 'replay');
+    assert.equal(again.currentStreak, streak, 'the streak does not move');
+    assert.equal(again.newlyLearned, false);
+
+    // Nothing was written twice: one answer row, and the streak is where the
+    // first call left it.
+    const rows = await prisma.sessionAnswer.count({
+      where: { sessionId: session.id, countryId: country.id },
+    });
+    assert.equal(rows, 1);
+    const progress = await prisma.progress.findUniqueOrThrow({
+      where: {
+        userId_countryId_quizTypeId: { userId, countryId: country.id, quizTypeId: quizType.id },
+      },
+    });
+    assert.equal(progress.currentStreak, streak);
+
+    // And the round still scores once.
+    const results = await finish(session.id);
+    assert.equal(results.total, 1);
+    assert.equal(results.score, 1);
+  });
+
+  it('replays a wrong answer without resetting the streak a second time', async () => {
+    const quizTypeKey = 'capitals-c2cap-type';
+    const session = await startSession(quizTypeKey, { questionCount: 1 });
+    const question = session.questions[0];
+
+    const first = await answer(session.id, question.sequence, 'not a capital at all');
+    assert.equal(first.wasCorrect, false);
+    const again = await answer(session.id, question.sequence, 'not a capital at all');
+    assert.equal(again.wasCorrect, false);
+    assert.equal(again.currentStreak, first.currentStreak);
+    const rows = await prisma.sessionAnswer.count({ where: { sessionId: session.id } });
+    assert.equal(rows, 1);
   });
 
   it('keeps sessions private to their participant', async () => {

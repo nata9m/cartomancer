@@ -73,8 +73,12 @@ export interface AnswerResult {
   correctCountryId: number;
   correctCountryName: string;
   correctIsoCode: string;
-  /** How the answer was accepted, for future tuning/telemetry. */
-  matchedBy: 'exact' | 'alias' | 'fuzzy' | 'none';
+  /**
+   * How the answer was accepted, for future tuning/telemetry. `replay` is the
+   * answer that was already recorded being reported again: a retried POST after
+   * a lost response (#58), which re-reads rather than re-matches.
+   */
+  matchedBy: 'exact' | 'alias' | 'fuzzy' | 'none' | 'replay';
   /** Null for guests — nothing is persisted, so there is no streak. */
   currentStreak: number | null;
   isLearned: boolean | null;
