@@ -14,6 +14,11 @@ interface SeenStore {
   [filterKey: string]: number[];
 }
 
+/**
+ * Region and difficulty only: a clue you have met is met whichever way you
+ * answered it, so the two modes (#42) share one rotation — as the signed-in
+ * side already does, keying fact_progress by user and fact alone.
+ */
 function filterKey(filters: Filters): string {
   const r = filters.region || 'all';
   const d = filters.difficulty || 'all';

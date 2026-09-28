@@ -122,6 +122,16 @@ export const QUIZ_TYPES: readonly QuizTypeDefinition[] = [
     isActive: true,
   },
   {
+    key: 'trivia-fact2c-mc',
+    category: 'trivia',
+    format: 'multiple_choice',
+    displayName: 'Fun facts',
+    directionLabel: 'Fact → country',
+    direction: 'attribute_to_country',
+    description: 'Pick the country a clue describes',
+    isActive: true,
+  },
+  {
     key: 'trivia-fact2c-type',
     category: 'trivia',
     format: 'type_in',

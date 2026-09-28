@@ -23,6 +23,7 @@ export function PlayPicker({
   filters,
   showDifficulty = false,
   showQuestionCount = false,
+  showMode = false,
   note,
   pending,
   error,
@@ -34,6 +35,7 @@ export function PlayPicker({
   filters: Filters;
   showDifficulty?: boolean;
   showQuestionCount?: boolean;
+  showMode?: boolean;
   /** Optional muted line under the chips, e.g. how big the pool is. */
   note?: string;
   pending: boolean;
@@ -53,6 +55,7 @@ export function PlayPicker({
         filters={filters}
         showDifficulty={showDifficulty}
         showQuestionCount={showQuestionCount}
+        showMode={showMode}
       />
 
       <p className="screen-note">{description}</p>
