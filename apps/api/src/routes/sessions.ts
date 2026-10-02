@@ -5,7 +5,9 @@ import {
   type MissedQuestion,
   type QuizSession as QuizSessionPayload,
   type QuizQuestion,
+  type QuizTypeDefinition,
   type SessionResults,
+  createAnswerSalt,
   quizTypeByKey,
 } from '@cartomancer/shared';
 import type { Country, PrismaClient } from '@cartomancer/db';
@@ -53,6 +55,18 @@ const checkSchema = z.object({
 
 /** Guest session ids are client-side only; this marks them as such. */
 const GUEST_SESSION_PREFIX = 'guest-';
+
+/**
+ * The salt this payload's type-in answer hashes are built with (#69), or
+ * undefined for the formats that carry no hashes.
+ *
+ * Minted per response, not per stored session: the salt only has to agree with
+ * the hashes alongside it, so a refresh mid-round gets a fresh pair and there
+ * is nothing to persist, rotate, or keep in step with a rolling restart.
+ */
+function answerSaltFor(definition: QuizTypeDefinition): string | undefined {
+  return definition.format === 'type_in' ? createAnswerSalt() : undefined;
+}
 
 export async function registerSessionRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -120,12 +134,14 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
 
     const countries = await loadCountriesInOrder(app.prisma, countryIds);
     const distractorPool = await app.prisma.country.findMany();
-    const questions = buildQuestions({
+    const answerSalt = answerSaltFor(definition);
+    const questions = await buildQuestions({
       definition,
       countries,
       distractorPool,
       factsByCountryId,
       factIdsByCountryId,
+      answerSalt,
     });
 
     if (userId === null) {
@@ -137,6 +153,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
         questionCount: questions.length,
         questions,
         isGuest: true,
+        answerSalt,
       };
       return reply.code(201).send(payload);
     }
@@ -169,6 +186,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       questionCount: questions.length,
       questions,
       isGuest: false,
+      answerSalt,
     };
     return reply.code(201).send(payload);
   });
@@ -214,12 +232,14 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       factsByCountryId = new Map();
     }
 
-    const questions: QuizQuestion[] = buildQuestions({
+    const answerSalt = answerSaltFor(definition);
+    const questions: QuizQuestion[] = await buildQuestions({
       definition,
       countries,
       distractorPool,
       factsByCountryId,
       factIdsByCountryId,
+      answerSalt,
     });
 
     const answered = await app.prisma.sessionAnswer.findMany({
@@ -236,6 +256,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       questionCount: session.questionCount,
       questions,
       isGuest: false,
+      answerSalt,
       answered,
     };
     return payload;

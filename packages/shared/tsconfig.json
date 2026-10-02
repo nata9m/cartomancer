@@ -1,6 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // DOM for Web Crypto and TextEncoder (answer-hash.ts), which the api and
+    // the browser both run. Not for the rest of the DOM: nothing shared may
+    // touch `document` or `window`, since the api imports every line of this.
+    "lib": ["ES2022", "DOM"],
     "rootDir": "src",
     "outDir": "dist"
   },
