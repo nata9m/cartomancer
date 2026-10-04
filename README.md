@@ -76,12 +76,13 @@ the way the container does (`next start` refuses to run a `standalone` build).
 Each app has a commented `.env.example`; the short version:
 
 **`apps/api`** — `DATABASE_URL`, `PORT` (8080), `HOST` (0.0.0.0),
-`INTERNAL_API_KEY`, optional `CORS_ORIGIN`, `LOG_LEVEL`.
+`INTERNAL_API_KEY`, optional `CORS_ORIGIN`, `LOG_LEVEL`, and the optional
+`DATABASE_POOL_*` settings (see [Database connections](#database-connections-62)).
 
 **`apps/web`** — `AUTH_SECRET`, `AUTH_URL`, `AUTH_TRUST_HOST`, `AUTH_GOOGLE_ID`,
 `AUTH_GOOGLE_SECRET`, `API_INTERNAL_URL`, `INTERNAL_API_KEY`, `DATABASE_URL`,
-`PORT` (3000), `HOSTNAME` (0.0.0.0), plus the four optional `AUTH_APPLE_*`
-variables below.
+`PORT` (3000), `HOSTNAME` (0.0.0.0), the optional `DATABASE_POOL_*` settings, plus
+the four optional `AUTH_APPLE_*` variables below.
 
 Every sign-in provider is optional and decided per provider from the
 environment. `AUTH_APPLE_ID`, `AUTH_APPLE_TEAM_ID`, `AUTH_APPLE_KEY_ID` and
@@ -96,6 +97,96 @@ unavailable and guest mode still works.
 check: fine locally, where the api logs a warning at boot and carries on, and
 impossible in the cluster — with `NODE_ENV=production` an empty key makes the
 api refuse to start.
+
+## Database connections (#62)
+
+Prisma 7 reaches Postgres through `@prisma/adapter-pg`, which is a node-postgres
+`Pool`, so the `?connection_limit=` URL parameter that older Prisma versions
+honoured does nothing here. Until this was configurable every process quietly
+used node-postgres's defaults: **ten connections, and no limit on how long a
+request would wait for one** — so adding replicas could hit Postgres's
+`max_connections` with no code change, and a full pool did not fail, it hung.
+
+| Setting | api default | web default | What it does |
+| --- | --- | --- | --- |
+| `DATABASE_POOL_MAX` | 10 | 3 | The most connections one pod holds open. |
+| `DATABASE_POOL_IDLE_TIMEOUT_MS` | 30000 | 30000 | Closes a connection left unused this long. |
+| `DATABASE_POOL_CONNECTION_TIMEOUT_MS` | 5000 | 5000 | A request waits at most this long for a free connection, then fails. |
+
+The api's 10 is exactly what it had before, so **nothing changes until an
+operator sets one**. The web app's 3 is lower on purpose: sessions are JWTs, so it
+touches the database only at sign-in and in the account actions, a handful of
+short queries. The environment overrides the app's default, which overrides the
+package's. A value that is not a positive whole number refuses to start the
+process, naming the variable — silently falling back to the default would leave an
+operator believing a limit was in force that is not.
+
+**The budget.** Connections are opened lazily, so an idle pod holds few; the
+budget is the ceiling every pod could reach together:
+
+```text
+(api replicas × api max) + (web replicas × web max) + migrations and admin  <  max_connections
+```
+
+Postgres defaults to `max_connections = 100`, of which a few are reserved for
+superusers. Two things people forget: a rolling update runs old and new pods
+together, so count `replicas + maxSurge`, and the migration init container, the
+seed, `psql` and Prisma Studio all need a connection too — keep at least ten
+spare. With 2 api and 2 web replicas that is `2×10 + 2×3 = 26`, comfortable;
+with 6 api replicas and a surge of 2 it is `8×10 + 2×3 = 86` before any admin
+access, already close to 100 — and that arithmetic is the reason to lower
+`DATABASE_POOL_MAX` or add a pooler *before* adding replicas, not after the first
+"too many clients".
+
+**What a full pool does.** A request that cannot get a connection within the
+timeout fails with **`503 {"error":"service_busy"}` and `Retry-After: 1`** — not
+the generic 500 it used to be, and not a hang — so a client can tell "try again in
+a moment" from "something is broken". `/healthz` answers the same 503 but says
+`"database":"busy"` rather than `"down"`: the same timeout comes from a database
+that cannot be reached, and from a pod whose pool is full, and they are different
+problems. The cluster's call, not this repository's, but worth knowing: a
+**liveness** probe on `/healthz` would restart pods during a traffic spike, which
+is the wrong response to a busy pool; readiness is what it is for.
+
+**Seeing it before it errors.** The api logs the effective settings once at
+startup (`database pool configured`) and then samples the pool every 15 seconds:
+
+| Log line | Level | Means |
+| --- | --- | --- |
+| `database pool saturated: N requests gave up waiting…` | warn | Requests failed waiting for a connection since the last check. Raise the max, add capacity, or find the slow query holding connections. |
+| `database pool is fully in use` | info | Every connection is busy and nobody is waiting yet: one step from saturated. |
+| `database pool has recovered` | info | It is over. |
+| `database pool` | info every 5 min, else debug | `{ max, total, idle, waiting }`, for the trend. |
+
+Every line carries `pool: { max, idleTimeoutMillis, connectionTimeoutMillis,
+total, idle, waiting }`. The warning counts failed requests rather than only
+looking at the queue, because a request waits for at most the connection timeout
+and a sample every 15 seconds can fall between two such moments; the first
+version only sampled, and when the pool was saturated on purpose it reported
+"busy" and then "recovered" without ever saying "saturated". Each failed request
+also logs one short warning line, without a stack. Connections that error while
+idle (Postgres restarting) are logged as `database pool error`; they were
+previously noted at debug level only.
+
+**If replicas outgrow the budget, put PgBouncer (transaction mode) in front of
+Postgres.** Not done, and not tested here — there was no PgBouncer to test
+against — but the code was read for what transaction pooling breaks, and found
+nothing that does: no advisory locks, `LISTEN`/`NOTIFY`, `SET`, temp tables or
+cursors anywhere in the app. Queries are unnamed (the adapter only names a
+statement if given a `statementNameGenerator`, which this repo does not), so there
+are no server-side prepared statements for the pooler to lose. The `pg_trgm` fuzzy
+matching is plain SQL calling a database-level function and extension, and every
+interactive transaction (`SELECT … FOR UPDATE` on the participant row, the
+account deletion) lives on one backend connection for its whole length, which is
+what transaction mode guarantees. The one real exception is **migrations**: Prisma
+Migrate takes an advisory lock, so `migrate-deploy.mjs` has to talk to Postgres
+directly, not through the pooler. Verify all of this in staging before relying on
+it.
+
+**On the cluster side**, a new environment variable needs a reviewed change in the
+cluster repo (`ktmb1/home-ops`). None is required: the defaults above are chosen so
+that deploying this as it stands changes nothing for the api and only lowers the
+web app's footprint.
 
 ## Containers and CI
 

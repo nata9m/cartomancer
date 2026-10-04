@@ -10,7 +10,7 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
-import { getPrisma } from '@cartomancer/db';
+import { createPrismaClient, getPrisma } from '@cartomancer/db';
 import {
   DISPLAY_NAME_MAX_LENGTH,
   displayNameProblem,
@@ -18,11 +18,12 @@ import {
   normalizeAnswer,
 } from '@cartomancer/shared';
 import { type ClueCandidate, pickClues } from './lib/quiz.js';
-import type { FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { clearCountryCache, loadAllCountries } from './lib/countries.js';
 import { loadSummary } from './lib/progress.js';
 import { requestTimeZone } from './timezone.js';
 import { loadEnv } from './env.js';
+import { registerHealthRoutes } from './routes/health.js';
 import { buildServer } from './server.js';
 
 const prisma = getPrisma();
@@ -1723,6 +1724,106 @@ describe('answering is atomic and safe to race (#54)', () => {
         6,
       );
     });
+  });
+
+  it('answers a full connection pool with a 503 and a Retry-After, not a 500 (#62)', async () => {
+    const net = await buildServer({ ...loadEnv(), LOG_LEVEL: 'fatal', INTERNAL_API_KEY: '' });
+    net.get('/__full', async () => {
+      throw new Error('timeout exceeded when trying to connect');
+    });
+    net.get('/__broken', async () => {
+      throw new Error('some other failure');
+    });
+    const full = await net.inject({ method: 'GET', url: '/__full' });
+    assert.equal(full.statusCode, 503);
+    assert.equal(full.headers['retry-after'], '1');
+    assert.equal(full.json().error, 'service_busy');
+    assert.match(full.json().message, /busy/i);
+    assert.ok(!full.body.includes('timeout exceeded'), 'the pool’s own wording is not leaked');
+
+    // Only that error: anything else is still a fault in the server.
+    const broken = await net.inject({ method: 'GET', url: '/__broken' });
+    assert.equal(broken.statusCode, 500);
+    assert.equal(broken.json().message, 'Something went wrong');
+    await net.close();
+  });
+
+  it('says a full pool is busy, not that the database is down (#62)', async () => {
+    // A client of its own, and a bare Fastify instance around it. The query the
+    // health check runs is replaced on *this* client; replacing it on the shared
+    // one would leak into every test after it (the first version did, and a
+    // dozen unrelated tests started seeing a database that did not answer).
+    const client = createPrismaClient({ pool: { max: 1 } });
+    const bare = Fastify();
+    bare.decorate('prisma', client);
+    await registerHealthRoutes(bare);
+    try {
+      await client.user.count(); // so the pool holds an open connection, and "busy" is believable
+
+      const failWith = (message: string) =>
+        Object.defineProperty(client, '$queryRaw', {
+          configurable: true,
+          value: async () => {
+            throw new Error(message);
+          },
+        });
+
+      failWith('timeout exceeded when trying to connect');
+      const busy = await bare.inject({ method: 'GET', url: '/healthz' });
+      assert.equal(busy.statusCode, 503, 'still not ready to serve');
+      assert.deepEqual(busy.json(), { status: 'degraded', database: 'busy' });
+
+      failWith('connect ECONNREFUSED 127.0.0.1:5432');
+      const down = await bare.inject({ method: 'GET', url: '/healthz' });
+      assert.equal(down.statusCode, 503);
+      assert.deepEqual(down.json(), { status: 'degraded', database: 'down' });
+    } finally {
+      await bare.close();
+      await client.$disconnect();
+    }
+  });
+
+  it('says "down" when the pool has never connected, even if the error looks like a full pool', async () => {
+    // The same message comes from a database that cannot be reached at all. With
+    // no connection ever opened there is nothing to call busy.
+    const client = createPrismaClient({ pool: { max: 1 } });
+    const bare = Fastify();
+    bare.decorate('prisma', client);
+    await registerHealthRoutes(bare);
+    try {
+      Object.defineProperty(client, '$queryRaw', {
+        configurable: true,
+        value: async () => {
+          throw new Error('timeout exceeded when trying to connect');
+        },
+      });
+      const response = await bare.inject({ method: 'GET', url: '/healthz' });
+      assert.equal(response.statusCode, 503);
+      assert.deepEqual(response.json(), { status: 'degraded', database: 'down' });
+    } finally {
+      await bare.close();
+      await client.$disconnect();
+    }
+  });
+
+  it('logs a full pool as one short line, without the error’s stack (#62)', async () => {
+    const lines: string[] = [];
+    const net = await buildServer({ ...loadEnv(), LOG_LEVEL: 'warn', INTERNAL_API_KEY: '' });
+    net.log.warn = ((...args: unknown[]) => {
+      lines.push(JSON.stringify(args));
+    }) as never;
+    net.get('/__full', async (request) => {
+      request.log.warn = ((...args: unknown[]) => {
+        lines.push(JSON.stringify(args));
+      }) as never;
+      throw new Error('timeout exceeded when trying to connect');
+    });
+    const response = await net.inject({ method: 'GET', url: '/__full' });
+    assert.equal(response.statusCode, 503);
+    assert.equal(lines.length, 1, 'one line per failed request');
+    assert.ok(lines[0]!.includes('timeout exceeded when trying to connect'));
+    assert.ok(!lines[0]!.includes('stack'), 'no stack trace');
+    await net.close();
   });
 
   it('turns an unhandled unique violation into a 409, not a 500', async () => {

@@ -1,5 +1,5 @@
 import { PrismaAdapter } from '@auth/prisma-adapter';
-import { getPrisma } from '@cartomancer/db';
+import { getPrisma } from './lib/db';
 import NextAuth, { type NextAuthConfig } from 'next-auth';
 import Apple from 'next-auth/providers/apple';
 import Google from 'next-auth/providers/google';

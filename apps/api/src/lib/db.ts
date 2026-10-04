@@ -23,6 +23,23 @@ export function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
+ * Is this the pool refusing to hand out a connection in time (#62)?
+ *
+ * With `connectionTimeoutMillis` set, a request that cannot get a connection
+ * fails after a few seconds instead of waiting for ever, and node-postgres says
+ * so with a plain `Error('timeout exceeded when trying to connect')` — no Prisma
+ * code, no wrapper, which is why this matches the message. It is the same error
+ * when Postgres itself cannot be reached in time. Either way it is the server
+ * being unable to serve right now, not a bug in the request, so it is a 503
+ * with a Retry-After rather than a 500.
+ */
+export function isPoolExhausted(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message.includes('timeout exceeded when trying to connect')
+  );
+}
+
+/**
  * Takes the participant's row lock, so that everything this player does to this
  * session's score runs one transaction at a time.
  *
