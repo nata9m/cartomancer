@@ -110,7 +110,7 @@ export const loadQuizSession = (sessionId: string): Promise<PersistedSession> =>
 
 export const submitAnswer = (
   sessionId: string,
-  body: { sequence: number; answer: string; timeTakenMs?: number },
+  body: { sequence: number; answer: string; timeTakenMs?: number; hintUsed?: boolean },
 ): Promise<AnswerResult> =>
   bff<AnswerResult>(`sessions/${sessionId}/answers`, { method: 'POST', body, retry: true });
 
@@ -118,6 +118,7 @@ export const checkAnswerAsGuest = (body: {
   quizTypeKey: string;
   countryId: number;
   answer: string;
+  hintUsed?: boolean;
 }): Promise<AnswerResult> =>
   bff<AnswerResult>('answers/check', { method: 'POST', body, retry: true });
 

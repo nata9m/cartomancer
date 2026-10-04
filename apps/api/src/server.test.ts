@@ -887,6 +887,108 @@ describe('fun-facts rotation (#70)', () => {
   });
 });
 
+describe('type-in feedback and hints (#53)', () => {
+  const named = (name: string) => prisma.country.findFirstOrThrow({ where: { name } });
+
+  const submit = async (sessionId: string, sequence: number, value: string, hintUsed?: boolean) => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sessionId}/answers`,
+      headers: userHeaders(),
+      payload: { sequence, answer: value, hintUsed },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    return response.json();
+  };
+
+  it('offers a first-letter hint on type-in questions only', async () => {
+    const australia = await named('Australia');
+    const typeIn = await startSessionWith('capitals-c2cap-type', [australia.id]);
+    assert.equal(typeIn.questions[0].answerHint, 'C _ _ _ _ _ _ _');
+    const flags = await startSessionWith('flags-flag2c-type', [australia.id]);
+    assert.equal(flags.questions[0].answerHint, 'A _ _ _ _ _ _ _ _');
+    const choice = await startSessionWith('capitals-c2cap-mc', [australia.id]);
+    assert.equal(choice.questions[0].answerHint, undefined);
+  });
+
+  it('names the country a wrong answer actually was', async () => {
+    const australia = await named('Australia');
+    const session = await startSessionWith('flags-flag2c-type', [australia.id]);
+    const result = await submit(session.id, 1, 'Austria');
+    assert.equal(result.wasCorrect, false);
+    assert.equal(result.matchedCountryName, 'Austria');
+  });
+
+  it('does the same for a capital that belongs to another country', async () => {
+    const australia = await named('Australia');
+    const session = await startSessionWith('capitals-c2cap-type', [australia.id]);
+    const result = await submit(session.id, 1, 'Vienna');
+    assert.equal(result.wasCorrect, false);
+    assert.equal(result.matchedCountryName, 'Austria');
+  });
+
+  it('names nothing for a right answer, a typo, or gibberish', async () => {
+    const countries = await Promise.all(['Switzerland', 'France', 'Japan'].map(named));
+    const session = await startSessionWith(
+      'flags-flag2c-type',
+      countries.map((country) => country.id),
+    );
+    const typo = await submit(session.id, 1, 'Swizerland');
+    assert.equal(typo.matchedBy, 'fuzzy');
+    assert.equal(typo.matchedCountryName, undefined);
+    const right = await submit(session.id, 2, 'France');
+    assert.equal(right.matchedCountryName, undefined);
+    const nonsense = await submit(session.id, 3, 'qzxqzx');
+    assert.equal(nonsense.wasCorrect, false);
+    assert.equal(nonsense.matchedCountryName, undefined);
+  });
+
+  it('a hinted correct answer is correct but leaves the streak where it was', async () => {
+    const quizTypeKey = 'flags-flag2c-type';
+    const peru = await named('Peru');
+    const play = async (value: string, hintUsed?: boolean) => {
+      const session = await startSessionWith(quizTypeKey, [peru.id]);
+      return submit(session.id, 1, value, hintUsed);
+    };
+
+    const first = await play('Peru');
+    assert.equal(first.currentStreak, 1);
+
+    const hinted = await play('Peru', true);
+    assert.equal(hinted.wasCorrect, true);
+    assert.equal(hinted.currentStreak, 1, 'neither grown nor reset');
+    assert.equal(hinted.newlyLearned, false);
+
+    const second = await play('Peru');
+    assert.equal(second.currentStreak, 2);
+
+    // A hint on what would have been the learning answer does not learn it.
+    const hintedThird = await play('Peru', true);
+    assert.equal(hintedThird.wasCorrect, true);
+    assert.equal(hintedThird.currentStreak, 2);
+    assert.equal(hintedThird.isLearned, false);
+    assert.equal(hintedThird.newlyLearned, false);
+
+    // An unhinted one does.
+    const third = await play('Peru');
+    assert.equal(third.currentStreak, 3);
+    assert.equal(third.newlyLearned, true);
+
+    // A hint never softens a wrong answer.
+    const wrong = await play('Chile', true);
+    assert.equal(wrong.wasCorrect, false);
+    assert.equal(wrong.currentStreak, 0);
+  });
+
+  it('a hinted first answer starts the country at zero, not one', async () => {
+    const fiji = await named('Fiji');
+    const session = await startSessionWith('flags-flag2c-type', [fiji.id]);
+    const result = await submit(session.id, 1, 'Fiji', true);
+    assert.equal(result.wasCorrect, true);
+    assert.equal(result.currentStreak, 0);
+  });
+});
+
 describe('signed-in quiz session', () => {
   it('records answers, streaks and learned state, and rotates questions', async () => {
     const quizTypeKey = 'capitals-c2cap-type';

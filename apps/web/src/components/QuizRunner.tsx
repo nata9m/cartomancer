@@ -22,6 +22,7 @@ import {
 } from '@/lib/guest-store';
 import { haptic, hapticFor } from '@/lib/haptics';
 import { revealAnnouncement } from '@/lib/reveal';
+import { feedbackText, typeInFeedback } from '@/lib/type-in-feedback';
 import { getRoundNote } from '@/lib/round-note';
 import { markFactSeen } from '@/lib/seen-facts';
 
@@ -69,6 +70,8 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [answeredCount, setAnsweredCount] = useState(0);
   const [busy, setBusy] = useState(false);
+  // The type-in hint was asked for on this question (#53); reset with the question.
+  const [hintUsed, setHintUsed] = useState(false);
   const askedAt = useRef<number>(Date.now());
   const inputRef = useRef<HTMLInputElement | null>(null);
   const nextRef = useRef<HTMLButtonElement | null>(null);
@@ -123,6 +126,11 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
 
   const question: QuizQuestion | undefined = session?.questions[index];
   const total = session?.questions.length ?? 0;
+  // What the player types names a capital rather than a country; the same rule
+  // the api judges the answer by.
+  const isCapitalAnswer =
+    session?.quizType.category === 'capitals' &&
+    session.quizType.direction === 'country_to_attribute';
 
   useEffect(() => {
     askedAt.current = Date.now();
@@ -175,16 +183,32 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
               quizTypeKey: session.quizType.key,
               countryId: question.countryId,
               answer: value,
+              hintUsed,
             })
           : await submitAnswer(session.id, {
               sequence: question.sequence,
               answer: value,
               timeTakenMs: Date.now() - askedAt.current,
+              hintUsed,
             });
 
         setResult(outcome);
         setPhase('revealed');
-        setAnnouncement(revealAnnouncement(outcome));
+        setAnnouncement(
+          [
+            revealAnnouncement(outcome),
+            feedbackText(
+              typeInFeedback({
+                result: outcome,
+                typed: value,
+                capitalAnswer: isCapitalAnswer,
+                hintUsed,
+              }),
+            ),
+          ]
+            .filter(Boolean)
+            .join(' '),
+        );
         haptic(hapticFor(outcome));
         setAnsweredCount((count) => count + 1);
 
@@ -222,7 +246,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
         setBusy(false);
       }
     },
-    [busy, isGuest, phase, question, session],
+    [busy, hintUsed, isCapitalAnswer, isGuest, phase, question, session],
   );
 
   // Try again re-runs the newest version of this callback rather than the one
@@ -295,6 +319,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
       setTyped('');
       setChosenLabel(null);
       setResult(null);
+      setHintUsed(false);
       setAnnouncement('');
       setSubmitError(null);
       return;
@@ -334,7 +359,11 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
     );
   }
 
-  const { category, format, direction } = session.quizType;
+  const { category, format } = session.quizType;
+  const feedback =
+    phase === 'revealed' && result && format === 'type_in'
+      ? typeInFeedback({ result, typed, capitalAnswer: isCapitalAnswer, hintUsed })
+      : null;
   const progress = total === 0 ? 0 : Math.round((answeredCount / total) * 100);
 
   return (
@@ -384,6 +413,17 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
           )}
         </div>
       )}
+
+      {format === 'type_in' && hintUsed && question.answerHint ? (
+        <p
+          className="answer-hint"
+          aria-label={`Hint: starts with ${question.answerHint.charAt(0)}, ${
+            question.answerHint.replace(/[^\p{L}\p{N}_]/gu, '').length
+          } letters`}
+        >
+          <span aria-hidden="true">{question.answerHint}</span>
+        </p>
+      ) : null}
 
       {format === 'multiple_choice' ? (
         <div className={category === 'flags' ? 'options-grid' : 'options'}>
@@ -462,11 +502,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
             className="answer-input"
             type="text"
             value={typed}
-            placeholder={
-              direction === 'country_to_attribute' && category === 'capitals'
-                ? 'Type the capital'
-                : 'Type the country'
-            }
+            placeholder={isCapitalAnswer ? 'Type the capital' : 'Type the country'}
             autoComplete="off"
             autoCapitalize="words"
             spellCheck={false}
@@ -482,6 +518,19 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
               >
                 Check answer
               </button>
+              {question.answerHint && !hintUsed ? (
+                <button
+                  type="button"
+                  className="link-underline give-up"
+                  disabled={busy}
+                  onClick={() => {
+                    setHintUsed(true);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  Show a hint
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="link-underline give-up"
@@ -528,6 +577,14 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
                 </>
               )}
             </div>
+          ) : null}
+
+          {feedback ? (
+            <p className={`feedback-note feedback-note--${feedback.kind}`}>
+              {feedback.parts.map((part, key) =>
+                part.emphasis ? <em key={key}>{part.text}</em> : part.text,
+              )}
+            </p>
           ) : null}
 
           {result.newlyLearned ? (

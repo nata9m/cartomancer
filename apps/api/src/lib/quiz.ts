@@ -9,6 +9,7 @@ import {
   type QuizTypeSummary,
   type Region,
   type RegionFilter,
+  answerHintFor,
   hashAnswer,
   quizTypeByKey,
 } from '@cartomancer/shared';
@@ -394,8 +395,11 @@ export async function buildQuestions(input: QuestionBuildInput): Promise<QuizQue
       if (definition.format === 'multiple_choice') {
         question.options = buildOptions(definition, country, distractorPool);
       }
-      if (definition.format === 'type_in' && answerSalt) {
-        question.answerHashes = await answerHashesFor(definition, country, answerSalt);
+      if (definition.format === 'type_in') {
+        question.answerHint = answerHintFor(expectedAnswerFor(definition, country));
+        if (answerSalt) {
+          question.answerHashes = await answerHashesFor(definition, country, answerSalt);
+        }
       }
       return question;
     }),
