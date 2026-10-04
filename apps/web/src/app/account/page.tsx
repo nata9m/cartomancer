@@ -4,6 +4,7 @@ import type { ProgressSummary, UserProfile } from '@cartomancer/shared';
 import { signOutAction } from '@/app/actions';
 import { AccountNameForm } from '@/components/AccountNameForm';
 import { Avatar } from '@/components/Avatar';
+import { DeleteAccount } from '@/components/DeleteAccount';
 import { StatsStrip, StreakBar } from '@/components/HomeStats';
 import { IconArrowLeft, IconLogout } from '@/components/icons';
 import { displayNameFor, formatMemberSince, providerLabel } from '@/lib/profile';
@@ -116,6 +117,12 @@ export default async function AccountPage() {
       <div className="spacer" />
 
       {logOut}
+
+      {/* Apart from Log out and below it: a different kind of action, and not one
+          to land on by reaching for the button above (#64). */}
+      <div className="danger-zone">
+        <DeleteAccount />
+      </div>
     </main>
   );
 }

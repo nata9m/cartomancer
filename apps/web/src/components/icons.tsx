@@ -21,4 +21,5 @@ export {
   IconCircleCheck, // ti-circle-check
   IconLogout, // ti-logout
   IconUser, // ti-user
+  IconTrash, // ti-trash
 } from '@tabler/icons-react';

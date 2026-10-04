@@ -81,6 +81,10 @@ export async function apiFetch<T>(
     const detail = await response.text();
     throw new ApiError(response.status, detail || response.statusText);
   }
+  // A 204 (DELETE /api/me) has no body to parse; `json()` would throw on it.
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return (await response.json()) as T;
 }
 

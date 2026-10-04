@@ -445,8 +445,50 @@ uses the part of the email before the `@`. The name is never kept in the Auth.js
 JWT; every screen reads it from `/api/me`, so there is no stale copy to refresh
 after saving. The provider's picture is shown with `no-referrer` and falls back
 to the initial if it fails — including when it failed before the page hydrated,
-which an `onError` handler alone misses. Not built, deliberately: deleting an
-account (it removes progress, and wants a confirmation flow of its own).
+which an `onError` handler alone misses.
+
+**Deleting an account (#64).** *Delete account* sits under *Log out* on
+`/account`, behind a panel: the player types `DELETE` (any casing — the word
+rather than the email, which on a phone is a worse thing to retype, and for an
+Apple relay address is random characters) before the final button enables. The
+web action re-checks it and `DELETE /api/me` demands `{ "confirm": "DELETE" }`
+in its own right, exactly, so a stray request cannot wipe an account. It is one
+transaction (`deleteAccount`, `apps/api/src/lib/account.ts`): either all of it
+happens or none of it does, and a failure leaves the account intact with an
+error on the panel. A repeat is a 204, not an error — the account is gone, which
+is what was asked.
+
+What goes: the `users` row, and with it by cascade `accounts` (the provider link,
+its tokens and the `id_token`, which carries the email), `auth_sessions`,
+`progress`, `fact_progress`, `session_participants` and `session_answers`. Two
+things the cascades cannot reach are removed explicitly. **Quiz sessions:**
+`quiz_sessions.created_by` is `SET NULL`, so left alone a player's sessions would
+outlive them as anonymous rows nothing would ever clean up; a session is deleted
+when it was theirs (made or taken part in) and nobody else took part, and one
+someone else shared stays, minus this player's rows. **Verification tokens:**
+`verification_tokens.identifier` is an email with no foreign key. The Auth.js
+session is a JWT with no row, so signing out (which clears the cookie) is the
+whole of ending it, and the player lands on `/login?deleted=1` with a notice.
+
+What is *not* deleted, because it is not in the database: **request logs.**
+Fastify logs each request's method, URL and remote address (the player's IP is
+personal data) and never a user id, header or email — nothing in this repo logs
+one — but how long the cluster keeps those logs is the cluster's setting, not
+this repository's. There is no analytics. Apple keeps its own record of the
+authorisation until it is revoked, below.
+
+**Sign in with Apple.** Apple expects a deleted account to revoke its token. The
+web action reads the stored Apple token *before* deleting (it lives in the
+`accounts` row that goes), deletes through the api, and only then calls
+`POST https://appleid.apple.com/auth/revoke` — after, not before, so a delete
+that fails does not leave the player with an account whose Apple authorisation
+was already withdrawn. Revocation is best-effort and bounded (five seconds): it
+is something the app owes Apple, not something the player is owed, and their data
+is already gone, so any failure — Apple down, token refused, Sign in with Apple
+since switched off — is logged (the kind of failure only, never a token, the
+client secret or an id) and swallowed. It lives in the web app because the Apple
+key does; putting it in the api would need new secrets in the cluster, which is a
+reviewed change on that side.
 
 **Streaks and stats** on the home screen are derived from `session_answers`
 rather than stored: a "day practised" is exactly "a day with at least one
