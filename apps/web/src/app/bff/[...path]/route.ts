@@ -1,7 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { currentUserId } from '@/lib/server-api';
-
-import { API_INTERNAL_URL } from '@/lib/server-api';
+import { API_INTERNAL_URL, TIMEZONE_HEADER, currentTimeZone, currentUserId } from '@/lib/server-api';
 
 /**
  * Backend-for-frontend proxy.
@@ -28,6 +26,12 @@ async function forward(request: NextRequest, path: string[]): Promise<Response> 
   const userId = await currentUserId();
   if (userId) {
     headers['x-cartomancer-user-id'] = userId;
+  }
+
+  // So finishing a quiz counts the day streak in the player's day, not UTC's (#66).
+  const timeZone = await currentTimeZone();
+  if (timeZone) {
+    headers[TIMEZONE_HEADER] = timeZone;
   }
 
   let body: string | undefined;

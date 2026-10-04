@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { loadSummary } from '../lib/progress.js';
+import { requestTimeZone } from '../timezone.js';
 
 export async function registerSummaryRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -12,8 +13,7 @@ export async function registerSummaryRoutes(app: FastifyInstance): Promise<void>
     if (userId === null) {
       return { summary: null, isGuest: true };
     }
-    const query = request.query as { tz?: string };
-    const summary = await loadSummary(app.prisma, userId, query.tz ?? 'UTC');
+    const summary = await loadSummary(app.prisma, userId, requestTimeZone(request));
     return { summary, isGuest: false };
   });
 }

@@ -100,12 +100,19 @@ export async function newlyLearnedInSession(
  * Day streak and weekly activity are derived from `session_answers` rather than
  * stored: "a day the user practised" is exactly "a day with at least one
  * answer", so there is nothing to keep in sync. Days are bucketed in the
- * caller's timezone (the web app passes the browser's), defaulting to UTC.
+ * caller's timezone, defaulting to UTC — which is only right for a player in UTC.
+ * Everywhere this is called must say where the player is (`requestTimeZone`),
+ * or "today" is the wrong day for anyone else: a player ahead of UTC who has not
+ * played since Monday still has a streak on Wednesday morning, because their
+ * Wednesday is still Tuesday in UTC (#66).
+ *
+ * `now` is a parameter so the day boundary can be tested; callers leave it out.
  */
 export async function loadSummary(
   prisma: PrismaClient,
   userId: string,
   timeZone = 'UTC',
+  now: Date = new Date(),
 ): Promise<ProgressSummary> {
   const zone = isValidTimeZone(timeZone) ? timeZone : 'UTC';
 
@@ -120,7 +127,7 @@ export async function loadSummary(
   );
   const activeDaySet = new Set(activeDays.map((row) => row.day));
 
-  const today = localDateParts(new Date(), zone);
+  const today = localDateParts(now, zone);
   const dayStreak = countStreak(activeDaySet, today);
   const weekActivity = currentWeekDays(today).map((day) => activeDaySet.has(day));
 
@@ -189,7 +196,7 @@ export async function loadCategoryProgress(
   return { category, countries };
 }
 
-function isValidTimeZone(zone: string): boolean {
+export function isValidTimeZone(zone: string): boolean {
   try {
     new Intl.DateTimeFormat('en-CA', { timeZone: zone });
     return /^[A-Za-z0-9+\-_/]+$/.test(zone);

@@ -15,6 +15,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { badRequest, forbidden, notFound } from '../errors.js';
 import { checkAnswer } from '../lib/matching.js';
+import { requestTimeZone } from '../timezone.js';
 import { loadSummary, newlyLearnedInSession, recordProgress } from '../lib/progress.js';
 import {
   answerDomainFor,
@@ -422,7 +423,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       });
     }
     await syncParticipantScore(app.prisma, session.id, userId);
-    return buildResults(app.prisma, session.id, userId);
+    return buildResults(app.prisma, session.id, userId, requestTimeZone(request));
   });
 
   app.get('/api/sessions/:id/results', async (request) => {
@@ -432,7 +433,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     }
     const { id } = request.params as { id: string };
     const session = await loadOwnedSession(app.prisma, id, userId);
-    return buildResults(app.prisma, session.id, userId);
+    return buildResults(app.prisma, session.id, userId, requestTimeZone(request));
   });
 }
 
@@ -502,6 +503,7 @@ async function buildResults(
   prisma: PrismaClient,
   sessionId: string,
   userId: string,
+  timeZone: string,
 ): Promise<SessionResults> {
   const session = await prisma.quizSession.findUniqueOrThrow({
     where: { id: sessionId },
@@ -554,7 +556,7 @@ async function buildResults(
     countryIds: session.questions.map((question) => question.countryId),
     since: session.createdAt,
   });
-  const summary = await loadSummary(prisma, userId);
+  const summary = await loadSummary(prisma, userId, timeZone);
 
   return {
     sessionId,
