@@ -71,7 +71,10 @@ export function RecallResults({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const isGuest = isGuestSessionId(sessionId);
   const [results, setResults] = useState<RecallResultsPayload | null>(null);
+  /** Fatal: there are no results to show. */
   const [error, setError] = useState<string | null>(null);
+  /** Recoverable (#58): the results stay on screen; starting another round failed. */
+  const [startError, setStartError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -119,6 +122,7 @@ export function RecallResults({ sessionId }: { sessionId: string }) {
   async function tryAgain(): Promise<void> {
     if (!results) return;
     setBusy(true);
+    setStartError(null);
     try {
       const session = await startRecallSession(results.region);
       if (session.isGuest) {
@@ -126,7 +130,7 @@ export function RecallResults({ sessionId }: { sessionId: string }) {
       }
       router.push(`/recall/${session.id}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not start another round');
+      setStartError(cause instanceof Error ? cause.message : 'Could not start another round');
       setBusy(false);
     }
   }
@@ -185,6 +189,7 @@ export function RecallResults({ sessionId }: { sessionId: string }) {
       <div className="spacer" />
 
       <div className="stack">
+        {startError ? <p className="error-note">{startError}</p> : null}
         <button type="button" className="button-primary" onClick={() => void tryAgain()} disabled={busy}>
           Try again
           <IconArrowRight size={16} stroke={2} />

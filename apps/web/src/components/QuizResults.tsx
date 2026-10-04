@@ -23,7 +23,14 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const isGuest = isGuestSessionId(sessionId);
   const [results, setResults] = useState<SessionResults | null>(null);
+  /** Fatal: there are no results to show, so the screen has nothing else to be. */
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Recoverable (#58): the results are on screen and one request to start the next
+   * round failed. It shows by the button, which stays pressable, rather than
+   * replacing a score the player came here to read.
+   */
+  const [startError, setStartError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -91,6 +98,7 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
   async function playAgain(): Promise<void> {
     if (!results) return;
     setBusy(true);
+    setStartError(null);
     try {
       const session = await startQuizSession({
         quizTypeKey: results.quizType.key,
@@ -106,7 +114,7 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
       preloadQuestionFlags(session.questions[0]);
       router.push(`/quiz/${session.id}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not start another round');
+      setStartError(cause instanceof Error ? cause.message : 'Could not start another round');
       setBusy(false);
     }
   }
@@ -180,6 +188,7 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
       <div className="spacer" />
 
       <div className="stack">
+        {startError ? <p className="error-note">{startError}</p> : null}
         <button type="button" className="button-primary" onClick={() => void playAgain()} disabled={busy}>
           Play again
           <IconArrowRight size={16} stroke={2} />

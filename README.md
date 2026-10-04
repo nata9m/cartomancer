@@ -621,6 +621,9 @@ involves:
   *replay* rather than a 409: the api returns what it recorded, writes nothing,
   and scores nothing twice, because a request can commit and still never reach
   the browser. `matchedBy: 'replay'` is how a response says it is that reply.
+  The results screens follow the same rule: if "Play again" fails, the score
+  stays on screen with the error by the button, and only a failure to load the
+  results at all — when there is nothing to keep — is the full-screen one.
   The infra half of #58 — ECH configs advertised for the zone that the edge
   cannot honour — lives in the cluster repo, not here.
 - **Flag artwork is fetched a question ahead.** An `<img>` only starts loading
