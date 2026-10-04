@@ -1327,6 +1327,88 @@ describe('active recall', () => {
     );
   });
 
+  it('a completed round finishes cleanly, and finishing again changes nothing (#67)', async () => {
+    // The round now ends by itself when the last country is named, so the
+    // automatic finish and a tap on "I'm done" (or a retried request, #58) can
+    // both arrive. The session has to be marked finished once, and keep the
+    // moment it was.
+    // Its own player: naming every country makes them all "learned", which the
+    // shared test user's later summary assertions must not inherit.
+    const email = 'recall-complete@cartomancer.invalid';
+    await prisma.user.deleteMany({ where: { email } });
+    const player = await prisma.user.create({
+      data: { email, name: 'Recall Complete', authProvider: 'google' },
+    });
+    const headers = { 'x-cartomancer-user-id': player.id };
+
+    try {
+      const start = await app.inject({
+        method: 'POST',
+        url: '/api/recall',
+        headers,
+        payload: { region: 'Oceania' },
+      });
+      const session = start.json();
+      const oceania = await prisma.country.findMany({ where: { region: 'Oceania' } });
+      assert.equal(oceania.length, session.totalInRegion);
+
+      let last: { recalledCount: number } | undefined;
+      for (const country of oceania) {
+        const response = await app.inject({
+          method: 'POST',
+          url: `/api/recall/${session.id}/guesses`,
+          headers,
+          payload: { guess: country.name },
+        });
+        last = response.json();
+        assert.equal((last as { accepted?: boolean }).accepted, true, country.name);
+      }
+      assert.equal(last?.recalledCount, session.totalInRegion, 'the counter reaches the total');
+
+      const finish = () =>
+        app.inject({
+          method: 'POST',
+          url: `/api/recall/${session.id}/finish`,
+          headers,
+          payload: {},
+        });
+      const stamp = async () =>
+        (
+          await prisma.sessionParticipant.findUniqueOrThrow({
+            where: { sessionId_userId: { sessionId: session.id, userId: player.id } },
+          })
+        ).finishedAt;
+
+      const first = await finish();
+      assert.equal(first.statusCode, 200, first.body);
+      const results = first.json();
+      assert.equal(results.recalled.length, session.totalInRegion);
+      assert.deepEqual(results.missed, [], 'full marks: nothing missed');
+      const firstStamp = await stamp();
+      assert.ok(firstStamp, 'finishing sets the finish time');
+
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      const second = await finish();
+      assert.equal(second.statusCode, 200, second.body);
+      assert.deepEqual(second.json(), results, 'a repeat reports the same results');
+      assert.equal(
+        (await stamp())?.getTime(),
+        firstStamp.getTime(),
+        'a repeat must not re-stamp the finish time',
+      );
+
+      // Two arriving together, as the automatic call and a tap can.
+      const [a, b] = await Promise.all([finish(), finish()]);
+      assert.equal(a.statusCode, 200);
+      assert.equal(b.statusCode, 200);
+      assert.equal((await stamp())?.getTime(), firstStamp.getTime());
+      const stored = await prisma.quizSession.findUniqueOrThrow({ where: { id: session.id } });
+      assert.equal(stored.status, 'finished');
+      } finally {
+      await prisma.user.deleteMany({ where: { email } });
+    }
+  });
+
   it('matches guest recall guesses without persisting them', async () => {
     const sessionsBefore = await prisma.quizSession.count();
     const start = await app.inject({ method: 'POST', url: '/api/recall', payload: { region: 'Europe' } });

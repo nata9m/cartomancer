@@ -19,13 +19,23 @@ interface Recalled {
   isoCode: string;
 }
 
+/** How long "Region complete!" shows before the jump to results (#67). */
+const COMPLETION_MOMENT_MS = 1200;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 /**
  * Countries active recall.
  *
  * No progress bar and no fixed question count: the round ends when the user says
- * so. A correct, novel guess is appended to the list and the counter ticks up; a
- * duplicate or unrecognised guess just clears the input, with a one-line inline
- * note so the input doesn't silently swallow the attempt.
+ * so — or when there is nothing left to name. A correct, novel guess is appended
+ * to the list and the counter ticks up; a duplicate or unrecognised guess just
+ * clears the input, with a one-line inline note so the input doesn't silently
+ * swallow the attempt. Naming the last country in the region finishes the round
+ * by itself (#67), after a moment to see that it is complete.
  */
 export function RecallRunner({ sessionId }: { sessionId: string }) {
   const router = useRouter();
@@ -43,6 +53,12 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
   /** What Try again does: whichever call just failed, with its arguments. */
   const retry = useRef<(() => Promise<void>) | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * True from the moment a finish starts until it fails. A ref, not `busy`,
+   * because it has to hold the instant it is set: the automatic finish and a tap
+   * on "I'm done" can land in the same tick, and `busy` is a render behind.
+   */
+  const finishing = useRef(false);
 
   useEffect(() => {
     if (!isGuest) {
@@ -79,6 +95,7 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
     }
     setBusy(true);
     setSubmitError(null);
+    let completed = false;
     try {
       const outcome = isGuest
         ? await checkRecallGuessAsGuest({
@@ -95,6 +112,7 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
         if (isGuest) {
           saveGuestRecall({ session, recalled: next });
         }
+        completed = next.length >= session.totalInRegion;
       } else if (outcome.duplicate && outcome.country) {
         setNote({ text: `${outcome.country.name} is already on your list`, kind: 'info' });
       } else {
@@ -106,22 +124,40 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
       retry.current = () => guess(value);
       setSubmitError(cause instanceof Error ? cause.message : 'Could not check that guess');
     } finally {
-      setBusy(false);
-      inputRef.current?.focus();
+      // Busy stays up when that was the last country: the input must not take
+      // another guess while the round finishes itself.
+      if (!completed) {
+        setBusy(false);
+        inputRef.current?.focus();
+      }
+    }
+    if (completed) {
+      await finish(true);
     }
   }
 
-  async function finish(): Promise<void> {
-    if (!session) return;
+  /**
+   * Ends the round. `celebrate` is the automatic path: it holds the screen on
+   * "Region complete!" for a moment, in parallel with the request so the wait is
+   * never longer than the moment itself. Idempotent — the api stamps a finish
+   * once, and `finishing` stops a second call getting that far.
+   */
+  async function finish(celebrate = false): Promise<void> {
+    if (!session || finishing.current) return;
+    finishing.current = true;
     setBusy(true);
     setSubmitError(null);
     try {
-      if (!isGuest) {
-        await finishRecallSession(session.id);
-      }
+      await Promise.all([
+        isGuest ? Promise.resolve() : finishRecallSession(session.id),
+        celebrate ? sleep(COMPLETION_MOMENT_MS) : Promise.resolve(),
+      ]);
       router.push(`/recall/${session.id}/results`);
     } catch (cause) {
-      retry.current = () => finish();
+      // Try again skips the celebration: it has been seen. The list is complete
+      // and the input stays disabled, so the only way forward is this.
+      finishing.current = false;
+      retry.current = () => finish(false);
       setSubmitError(cause instanceof Error ? cause.message : 'Could not finish the round');
       setBusy(false);
     }
@@ -147,6 +183,11 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
   }
 
   const regionLabel = session.region === 'all' ? 'all regions' : session.region;
+  // Derived, so a round that is already complete when it loads (a refresh after
+  // a failed finish) looks complete too and offers the way out. It is not
+  // finished on load: that would bounce anyone who pressed Back from the
+  // results straight back to them.
+  const complete = session.totalInRegion > 0 && recalled.length >= session.totalInRegion;
 
   return (
     <main className="app-shell">
@@ -157,10 +198,16 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
         <h1 className="screen-title">Recall: {regionLabel}</h1>
       </div>
 
-      <div className="recall-counter">
+      <div className={`recall-counter${complete ? ' recall-counter--complete' : ''}`}>
         <span className="recall-count">{recalled.length}</span>
         <span className="recall-total"> / {session.totalInRegion}</span>
-        <div className="recall-caption">countries recalled</div>
+        <div className="recall-caption" role={complete ? 'status' : undefined}>
+          {complete
+            ? session.region === 'all'
+              ? `All ${session.totalInRegion} countries! 🎉`
+              : `All ${session.totalInRegion} countries of ${session.region}! 🎉`
+            : 'countries recalled'}
+        </div>
       </div>
 
       <form
@@ -179,7 +226,7 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
           autoComplete="off"
           autoCapitalize="words"
           spellCheck={false}
-          disabled={busy}
+          disabled={busy || complete}
           onChange={(event) => setTyped(event.target.value)}
         />
         {/*
@@ -188,7 +235,11 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
           doesn't match a country in this region is still refused — the counter
           and the list don't move, and the note below says why.
         */}
-        <button type="submit" className="button-secondary" disabled={busy || typed.trim() === ''}>
+        <button
+          type="submit"
+          className="button-secondary"
+          disabled={busy || complete || typed.trim() === ''}
+        >
           Add country
         </button>
       </form>
@@ -229,9 +280,13 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
 
       <div className="spacer" />
 
-      <button type="button" className="button-primary" onClick={() => void finish()} disabled={busy}>
-        I&rsquo;m done — show results
-      </button>
+      {/* Sticky, so a long round (44 countries in Europe, 195 in all) does not
+          bury the way out below the list it is growing (#67). */}
+      <div className="recall-finish">
+        <button type="button" className="button-primary" onClick={() => void finish()} disabled={busy}>
+          {complete ? 'Show results' : 'I\u2019m done \u2014 show results'}
+        </button>
+      </div>
     </main>
   );
 }
