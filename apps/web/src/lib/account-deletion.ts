@@ -1,5 +1,5 @@
 import 'server-only';
-import { getPrisma } from '@cartomancer/db';
+import { getPrisma } from './db';
 import { createAppleClientSecret, revokeAppleToken } from './apple';
 
 /** A token Apple issued for this player, and which kind it is. */

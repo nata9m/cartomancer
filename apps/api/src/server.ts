@@ -1,10 +1,11 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { getPrisma } from '@cartomancer/db';
+import { getPoolStats, getPrisma } from '@cartomancer/db';
 import { z } from 'zod';
 import { type RequestActor, resolveActor } from './auth.js';
 import type { Env } from './env.js';
 import { HttpError } from './errors.js';
-import { isUniqueViolation } from './lib/db.js';
+import { isPoolExhausted, isUniqueViolation } from './lib/db.js';
+import { createPoolMonitor, recordPoolTimeout } from './lib/pool-monitor.js';
 import { registerCatalogRoutes } from './routes/catalog.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerMeRoutes } from './routes/me.js';
@@ -21,7 +22,17 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     trustProxy: true,
   });
 
-  app.decorate('prisma', getPrisma());
+  // Ten connections is what node-postgres gave every process before there was a
+  // setting, so this changes nothing until an operator sets DATABASE_POOL_MAX. It
+  // is stated here so the api's need is written down, rather than inherited.
+  app.decorate(
+    'prisma',
+    getPrisma({
+      pool: { max: 10 },
+      onPoolError: (error) => app.log.error({ err: error }, 'database pool error'),
+    }),
+  );
+  startPoolMonitor(app);
   app.decorateRequest('actor', null as unknown as RequestActor);
 
   if (!env.INTERNAL_API_KEY) {
@@ -84,6 +95,23 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
           .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
           .join('; '),
       });
+    }
+    // The pool could not give a connection in time (#62). Said as what it is — the
+    // server cannot serve this right now — so a client can tell "try again in a
+    // moment" from "something is broken". Logged as the one line it is, without
+    // the error's stack: while the pool is saturated there is one of these per
+    // request, and the stack of a timeout is the same every time and says nothing
+    // about which query was unlucky. The pool monitor reports the running count.
+    if (isPoolExhausted(error)) {
+      recordPoolTimeout();
+      request.log.warn(
+        { reason: (error as Error).message },
+        'no database connection available in time',
+      );
+      return reply
+        .code(503)
+        .header('retry-after', '1')
+        .send({ error: 'service_busy', message: 'The server is busy. Try again in a moment.' });
     }
     // A unique constraint is the database saying "that is already there", which
     // is a conflict with what exists, not a fault in the server (#54). The routes
@@ -162,4 +190,36 @@ async function warnIfReferenceDataLooksUnseeded(app: FastifyInstance): Promise<v
   } catch (error) {
     app.log.warn({ err: error }, 'could not check whether reference data is seeded');
   }
+}
+
+/**
+ * Samples the pool every 15 seconds (#62) and logs when it matters; see
+ * `createPoolMonitor`. The configured limits are logged once at startup, because
+ * "what is this pool allowed to do" is the first question when it saturates, and
+ * the environment that set it is not in the logs.
+ *
+ * `unref`'d, so a monitor never keeps a process alive that would otherwise exit
+ * (a test, a script); stopped when the app closes.
+ */
+function startPoolMonitor(app: FastifyInstance): void {
+  const stats = () => getPoolStats(app.prisma);
+  const initial = stats();
+  if (initial) {
+    app.log.info(
+      {
+        pool: {
+          max: initial.max,
+          idleTimeoutMillis: initial.idleTimeoutMillis,
+          connectionTimeoutMillis: initial.connectionTimeoutMillis,
+        },
+      },
+      'database pool configured',
+    );
+  }
+  const monitor = createPoolMonitor({ getStats: stats, log: app.log });
+  const timer = setInterval(() => monitor.sample(), 15_000);
+  timer.unref();
+  app.addHook('onClose', async () => {
+    clearInterval(timer);
+  });
 }
