@@ -94,7 +94,8 @@ export interface StartQuizInput {
   region?: string;
   difficulty?: string;
   questionCount?: number;
-  excludeFactIds?: number[];
+  /** Guest trivia rotation: clue id → epoch ms last answered (#70). */
+  seenFacts?: Record<string, number>;
 }
 
 export const startQuizSession = (input: StartQuizInput): Promise<QuizSession> =>

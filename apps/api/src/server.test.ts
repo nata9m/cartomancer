@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { getPrisma } from '@cartomancer/db';
 import { matchesAcceptedAnswer, normalizeAnswer } from '@cartomancer/shared';
+import { type ClueCandidate, pickClues } from './lib/quiz.js';
 import type { FastifyInstance } from 'fastify';
 import { loadEnv } from './env.js';
 import { buildServer } from './server.js';
@@ -90,7 +91,7 @@ describe('guest play', () => {
     assert.equal(response.statusCode, 403);
   });
 
-  it('excludes seen fact IDs for guest trivia rotation', async () => {
+  it('puts clues the guest has met behind the ones they have not', async () => {
     const first = await app.inject({
       method: 'POST',
       url: '/api/sessions',
@@ -108,7 +109,7 @@ describe('guest play', () => {
         quizTypeKey: 'trivia-fact2c-type',
         questionCount: 10,
         region: 'Europe',
-        excludeFactIds: firstFactIds,
+        seenFacts: Object.fromEntries(firstFactIds.map((id: number) => [String(id), Date.now()])),
       },
     });
     assert.equal(second.statusCode, 201);
@@ -116,7 +117,7 @@ describe('guest play', () => {
     const secondFactIds = secondSession.questions.map((q: { factId: number }) => q.factId);
 
     const overlap = firstFactIds.filter((id: number) => secondFactIds.includes(id));
-    assert.equal(overlap.length, 0, 'guest rotation should exclude previously seen fact IDs');
+    assert.equal(overlap.length, 0, 'guest rotation should serve unmet clues first');
   });
 
   it('exposes no summary for guests', async () => {
@@ -541,6 +542,331 @@ describe('type-in answers are hashed, not sent (#69)', () => {
     });
     assert.equal(recall.statusCode, 201, recall.body);
     assert.equal(recall.json().answerSalt, undefined);
+  });
+});
+
+/**
+ * Fun-facts rotation (#70): a clue that has been answered does not come back
+ * until every clue matching the filters has been met once.
+ *
+ * `pickClues` is the rule and is tested on its own, with no database and no
+ * dice. The rest simulates play through the real endpoints, for a signed-in
+ * player (fact_progress) and a guest (the browser's list, sent with the
+ * request), because the bugs were in the plumbing around the rule: where "met"
+ * was recorded, and what it was keyed by.
+ */
+describe('fun-facts rotation (#70)', () => {
+  const clue = (factId: number, countryId: number, lastSeen: number | null): ClueCandidate => ({
+    factId,
+    countryId,
+    fact: `clue ${factId}`,
+    lastSeen,
+  });
+  const ids = (picked: { factId: number }[]) => picked.map((p) => p.factId);
+
+  describe('pickClues', () => {
+    it('serves every unmet clue before any met one', () => {
+      const pool = [clue(1, 1, 500), clue(2, 2, null), clue(3, 3, 100), clue(4, 4, null)];
+      assert.deepEqual(ids(pickClues(pool, 2, () => 0.5)).sort(), [2, 4]);
+    });
+
+    it('then serves the met clues oldest first, so a spent pool simply restarts', () => {
+      const pool = [clue(1, 1, 500), clue(2, 2, 100), clue(3, 3, 300), clue(4, 4, 200)];
+      assert.deepEqual(ids(pickClues(pool, 3)), [2, 4, 3]);
+    });
+
+    it('prefers a country not met at all over a new clue for one that was', () => {
+      // Country 1 has met clue 1 and has an unmet clue 2; country 2 is untouched.
+      const pool = [clue(1, 1, 100), clue(2, 1, null), clue(3, 2, null)];
+      assert.deepEqual(ids(pickClues(pool, 1)), [3]);
+      // …but it is only a preference between unmet clues: a met clue never wins.
+      assert.deepEqual(ids(pickClues(pool, 2)), [3, 2]);
+    });
+
+    it('asks one clue per country, however many it has', () => {
+      const pool = [clue(1, 1, null), clue(2, 1, null), clue(3, 1, null), clue(4, 2, null)];
+      const picked = pickClues(pool, 10);
+      assert.equal(picked.length, 2, 'short, not padded with a second clue for a country');
+      assert.deepEqual(picked.map((p) => p.countryId).sort(), [1, 2]);
+    });
+
+    it('returns a short round rather than repeats when the pool is small', () => {
+      assert.equal(pickClues([clue(1, 1, null), clue(2, 2, 50)], 20).length, 2);
+      assert.deepEqual(pickClues([], 5), []);
+    });
+
+    it('shuffles ties, so a new cycle is a reshuffle', () => {
+      const pool = [clue(1, 1, null), clue(2, 2, null), clue(3, 3, null)];
+      assert.deepEqual(ids(pickClues(pool, 3, () => 0.5)), [1, 2, 3], 'stable when the dice tie');
+      const rolls = [0.9, 0.5, 0.1];
+      assert.deepEqual(ids(pickClues(pool, 3, () => rolls.shift() ?? 0)), [3, 2, 1]);
+    });
+  });
+
+  // ─── simulating play ───────────────────────────────────────────────────────
+
+  type Round = { id: string; questions: { sequence: number; countryId: number; factId: number }[] };
+
+  const resetRotation = async () => {
+    await prisma.factProgress.deleteMany({ where: { userId } });
+  };
+
+  const poolFor = (region?: string, difficulty?: string) =>
+    prisma.countryFact.findMany({
+      where: {
+        ...(difficulty ? { difficulty } : {}),
+        ...(region ? { country: { region } } : {}),
+      },
+      select: { id: true, countryId: true },
+    });
+
+  /**
+   * The rule, stated as an invariant over one round: a clue that had been met is
+   * served only when every unmet matching clue belongs to a country that is
+   * already in the round (a country is asked once a round, so those cannot be
+   * asked). Anything else is a repeat served while something new was available.
+   */
+  const assertNoPrematureRepeat = async (
+    served: { countryId: number; factId: number }[],
+    seen: Set<number>,
+    region?: string,
+    difficulty?: string,
+  ) => {
+    const pool = await poolFor(region, difficulty);
+    const inRound = new Set(served.map((q) => q.countryId));
+    const unmetElsewhere = pool.filter((f) => !seen.has(f.id) && !inRound.has(f.countryId));
+    const repeats = served.filter((q) => seen.has(q.factId));
+    if (unmetElsewhere.length > 0) {
+      assert.deepEqual(
+        repeats.map((q) => q.factId),
+        [],
+        `served already-met clues while ${unmetElsewhere.length} unmet ones were available`,
+      );
+    }
+  };
+
+  const playSignedIn = async (
+    quizTypeKey: string,
+    options: { region?: string; difficulty?: string; questionCount: number },
+    answerThem = true,
+  ): Promise<Round> => {
+    const round = (await startSession(quizTypeKey, options)) as Round;
+    if (answerThem) {
+      for (const question of round.questions) {
+        const country = await prisma.country.findUniqueOrThrow({ where: { id: question.countryId } });
+        await answer(round.id, question.sequence, country.name);
+      }
+      await finish(round.id);
+    }
+    return round;
+  };
+
+  const startAsGuest = async (
+    quizTypeKey: string,
+    options: { region?: string; difficulty?: string; questionCount: number },
+    seenFacts: Record<string, number>,
+  ): Promise<Round> => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { quizTypeKey, ...options, seenFacts },
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    return response.json();
+  };
+
+  it('signed in: no clue repeats until the whole pool has been met, then the oldest return', async () => {
+    await resetRotation();
+    // Europe + Easy is 20 clues over 20 countries, so four rounds of five use the
+    // pool exactly once.
+    const options = { region: 'Europe', difficulty: 'Easy', questionCount: 5 };
+    const factIds: number[] = [];
+    for (let round = 0; round < 4; round += 1) {
+      const played = await playSignedIn('trivia-fact2c-type', options);
+      factIds.push(...played.questions.map((q) => q.factId));
+    }
+    assert.equal(new Set(factIds).size, 20, 'a clue came back before the pool was spent');
+
+    const fifth = await playSignedIn('trivia-fact2c-type', options, false);
+    assert.deepEqual(
+      fifth.questions.map((q) => q.factId).sort((a, b) => a - b),
+      factIds.slice(0, 5).sort((a, b) => a - b),
+      'a spent pool restarts with the clues met longest ago',
+    );
+  });
+
+  it('signed in: multiple choice and type-in share one rotation', async () => {
+    await resetRotation();
+    const options = { region: 'Europe', difficulty: 'Easy', questionCount: 5 };
+    const factIds: number[] = [];
+    for (const quizTypeKey of [
+      'trivia-fact2c-mc',
+      'trivia-fact2c-type',
+      'trivia-fact2c-mc',
+      'trivia-fact2c-type',
+    ]) {
+      const played = await playSignedIn(quizTypeKey, options);
+      factIds.push(...played.questions.map((q) => q.factId));
+    }
+    assert.equal(new Set(factIds).size, 20, 'a clue met in one mode came back in the other');
+  });
+
+  it('signed in: holds the rule over a long run of rounds across changing filters', async () => {
+    await resetRotation();
+    const seen = new Set<number>();
+    const plans = [
+      { region: undefined, difficulty: 'Easy' },
+      { region: 'Europe', difficulty: 'Easy' },
+      { region: 'Asia', difficulty: undefined },
+      { region: undefined, difficulty: 'Easy' },
+      { region: 'Europe', difficulty: undefined },
+      { region: 'Africa', difficulty: 'Hard' },
+      { region: undefined, difficulty: undefined },
+      { region: 'Europe', difficulty: 'Easy' },
+    ];
+    for (const plan of plans) {
+      const options = { ...plan, questionCount: 12 };
+      const played = await playSignedIn('trivia-fact2c-mc', options);
+      await assertNoPrematureRepeat(played.questions, seen, plan.region, plan.difficulty);
+      played.questions.forEach((q) => seen.add(q.factId));
+    }
+  });
+
+  it('signed in: abandoning a round does not consume its clues', async () => {
+    await resetRotation();
+    const options = { region: 'Europe', difficulty: 'Easy', questionCount: 20 };
+    const abandoned = await playSignedIn('trivia-fact2c-type', options, false);
+    assert.equal(abandoned.questions.length, 20);
+    assert.equal(await prisma.factProgress.count({ where: { userId } }), 0);
+
+    // Start one and answer only half: only the answered half is met.
+    const half = await playSignedIn('trivia-fact2c-type', { ...options, questionCount: 10 }, false);
+    for (const question of half.questions.slice(0, 5)) {
+      const country = await prisma.country.findUniqueOrThrow({ where: { id: question.countryId } });
+      await answer(half.id, question.sequence, country.name);
+    }
+    const met = await prisma.factProgress.findMany({ where: { userId }, select: { factId: true } });
+    assert.deepEqual(
+      met.map((m) => m.factId).sort((a, b) => a - b),
+      half.questions.slice(0, 5).map((q) => q.factId).sort((a, b) => a - b),
+    );
+  });
+
+  it('signed in: a replayed answer still records the clue as met', async () => {
+    // The first call can die between the answer and the rotation row (#58); the
+    // retry then replays "answered" and, before this, never wrote the row.
+    await resetRotation();
+    const round = await playSignedIn('trivia-fact2c-type', { questionCount: 1 }, false);
+    const question = round.questions[0]!;
+    const country = await prisma.country.findUniqueOrThrow({ where: { id: question.countryId } });
+    await answer(round.id, question.sequence, country.name);
+    await prisma.factProgress.deleteMany({ where: { userId, factId: question.factId } });
+
+    const replay = await answer(round.id, question.sequence, country.name);
+    assert.equal(replay.matchedBy, 'replay');
+    assert.equal(await prisma.factProgress.count({ where: { userId, factId: question.factId } }), 1);
+
+    // …without dragging a later, newer sighting backwards.
+    const later = new Date(Date.now() + 86_400_000);
+    await prisma.factProgress.update({
+      where: { userId_factId: { userId, factId: question.factId } },
+      data: { lastAnsweredAt: later },
+    });
+    await answer(round.id, question.sequence, country.name);
+    const kept = await prisma.factProgress.findUniqueOrThrow({
+      where: { userId_factId: { userId, factId: question.factId } },
+    });
+    assert.equal(kept.lastAnsweredAt.getTime(), later.getTime());
+  });
+
+  it('a pool smaller than the round returns a short round with no repeats', async () => {
+    // Oceania + Easy is 19 clues over just 5 countries.
+    const guest = await startAsGuest(
+      'trivia-fact2c-type',
+      { region: 'Oceania', difficulty: 'Easy', questionCount: 10 },
+      {},
+    );
+    assert.equal(guest.questions.length, 5);
+    assert.equal(new Set(guest.questions.map((q) => q.countryId)).size, 5);
+    assert.equal(new Set(guest.questions.map((q) => q.factId)).size, 5);
+
+    await resetRotation();
+    const signedIn = await playSignedIn(
+      'trivia-fact2c-type',
+      { region: 'Oceania', difficulty: 'Easy', questionCount: 10 },
+      false,
+    );
+    assert.equal(signedIn.questions.length, 5);
+  });
+
+  it('guest: no clue repeats until the pool is spent, whatever the filters were', async () => {
+    const seen: Record<string, number> = {};
+    let clock = 1_000;
+    const options = { region: 'Europe', difficulty: 'Easy', questionCount: 5 };
+    const factIds: number[] = [];
+    for (let round = 0; round < 4; round += 1) {
+      const played = await startAsGuest('trivia-fact2c-type', options, seen);
+      for (const question of played.questions) {
+        factIds.push(question.factId);
+        seen[String(question.factId)] = (clock += 10);
+      }
+    }
+    assert.equal(new Set(factIds).size, 20, 'a guest saw a clue twice before the pool was spent');
+  });
+
+  it('guest: changing region or difficulty between rounds does not replay a clue', async () => {
+    // The old list was keyed by region + difficulty, so a clue met under "All
+    // regions" was new under "Europe".
+    const seen: Record<string, number> = {};
+    const known = new Set<number>();
+    let clock = 1_000;
+    const plans = [
+      { region: undefined, difficulty: 'Easy' },
+      { region: 'Europe', difficulty: 'Easy' },
+      { region: 'Asia', difficulty: undefined },
+      { region: undefined, difficulty: 'Easy' },
+      { region: 'Europe', difficulty: undefined },
+      { region: 'Europe', difficulty: 'Easy' },
+      { region: undefined, difficulty: undefined },
+    ];
+    for (const plan of plans) {
+      const played = await startAsGuest(
+        'trivia-fact2c-mc',
+        { ...plan, questionCount: 12 },
+        seen,
+      );
+      await assertNoPrematureRepeat(played.questions, known, plan.region, plan.difficulty);
+      for (const question of played.questions) {
+        known.add(question.factId);
+        seen[String(question.factId)] = (clock += 10);
+      }
+    }
+  });
+
+  it('guest: a spent pool restarts with the clues seen longest ago', async () => {
+    const options = { region: 'Europe', difficulty: 'Easy' };
+    const all = await startAsGuest('trivia-fact2c-type', { ...options, questionCount: 20 }, {});
+    assert.equal(all.questions.length, 20);
+
+    // Every clue met, in the order they were served.
+    const seen = Object.fromEntries(all.questions.map((q, i) => [String(q.factId), 1_000 + i]));
+    const next = await startAsGuest('trivia-fact2c-type', { ...options, questionCount: 8 }, seen);
+    assert.deepEqual(
+      next.questions.map((q) => q.factId).sort((a, b) => a - b),
+      all.questions.slice(0, 8).map((q) => q.factId).sort((a, b) => a - b),
+      'the new cycle starts with the oldest',
+    );
+  });
+
+  it('guest: ignores the seen list it is not allowed to believe', async () => {
+    for (const seenFacts of [{ 'not-a-number': 1 }, { '12': -5 }, { '12': 'yesterday' }]) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/sessions',
+        payload: { quizTypeKey: 'trivia-fact2c-type', questionCount: 5, seenFacts },
+      });
+      assert.equal(response.statusCode, 400, JSON.stringify(seenFacts));
+    }
   });
 });
 

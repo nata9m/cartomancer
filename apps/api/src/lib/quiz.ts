@@ -204,19 +204,90 @@ export interface SelectedFact {
   fact: string;
 }
 
+/** A clue that matches the round's filters, and when this player last met it. */
+export interface ClueCandidate extends SelectedFact {
+  /** Epoch ms of the last answer to this clue, or null if never met. */
+  lastSeen: number | null;
+}
+
 /**
- * Selects trivia clues with per-clue rotation, filtering on the clue's own
- * difficulty (not the country's).
+ * Picks a round's clues: strictly least-recently-seen first (#70).
  *
- * Signed in: clues ordered by `fact_progress.last_answered_at ASC NULLS FIRST`
- * so never-seen clues come first. The cycle restarts only after every matching
- * clue has been answered.
+ * The order, which is the whole rule:
+ *   1. clues never met, of countries none of whose clues have been met
+ *   2. clues never met, of countries a different clue has been met for
+ *   3. clues already met, oldest first
  *
- * Guest: the caller passes `excludeFactIds` (from localStorage); excluded facts
- * are skipped. When the exclude list covers everything, the API returns whatever
- * is available (the client resets the list on short rounds).
+ * So a clue that has been met is never served while an unmet one is available
+ * to take its place, and when everything has been met the cycle simply restarts
+ * with whatever was seen longest ago — exhaustion needs no reset, no "seen"
+ * list to clear and no special case: everything is "seen", so the oldest comes
+ * first. Rank 1 over 2 is the one softening, and it only reorders clues that
+ * are *both* unmet: a player reads the same country with a new clue as a
+ * repeat, so countries not yet met at all go first.
  *
- * In both cases, at most one clue per country is selected in a round.
+ * At most one clue per country, because a country is asked about once a round
+ * (session_answers is keyed by it). That is also why a round can be shorter than
+ * asked — it is capped by the number of countries with a matching clue — and it
+ * is returned short rather than padded with repeats. The tail of a cycle can
+ * still pad with a met clue while an unmet one waits: when what is left unmet
+ * belongs to countries already in the round, that is the same-country rule, not
+ * a rotation failure.
+ *
+ * Ties are shuffled so each new cycle feels like a reshuffle. `random` is a
+ * parameter so the ordering can be tested without the dice.
+ */
+export function pickClues(
+  candidates: readonly ClueCandidate[],
+  limit: number,
+  random: () => number = Math.random,
+): SelectedFact[] {
+  const countriesWithSeenClue = new Set(
+    candidates.filter((c) => c.lastSeen !== null).map((c) => c.countryId),
+  );
+  const ranked = candidates
+    .map((clue) => ({
+      clue,
+      tiebreak: random(),
+      rank:
+        clue.lastSeen !== null ? 2 : countriesWithSeenClue.has(clue.countryId) ? 1 : 0,
+    }))
+    .sort(
+      (a, b) =>
+        a.rank - b.rank ||
+        // Only rank 2 has a last-seen time; the others are all "never".
+        (a.clue.lastSeen ?? 0) - (b.clue.lastSeen ?? 0) ||
+        a.tiebreak - b.tiebreak,
+    );
+
+  const selected: SelectedFact[] = [];
+  const taken = new Set<number>();
+  for (const { clue } of ranked) {
+    if (taken.has(clue.countryId)) continue;
+    taken.add(clue.countryId);
+    selected.push({ factId: clue.factId, countryId: clue.countryId, fact: clue.fact });
+    if (selected.length >= limit) break;
+  }
+  return selected;
+}
+
+/**
+ * Selects trivia clues with per-clue rotation over the clues that match the
+ * filters, filtering on the clue's own difficulty (not the country's).
+ *
+ * What counts as "met":
+ *   - signed in: a row in `fact_progress`, written when the clue is *answered*
+ *     — one shared rotation for both modes (#42) — so a round that is abandoned
+ *     consumes nothing;
+ *   - guest: the browser's own list, sent with the request as
+ *     `seenFacts: { [factId]: epochMs }` and recorded on answer too. One list
+ *     per browser, not per filter combination: a clue met under "All regions" is
+ *     met under "Europe".
+ *
+ * Both reduce to a last-seen time per clue, and `pickClues` does the rest. The
+ * pool is a few hundred rows, so it is fetched whole and ordered here rather
+ * than in SQL: the rule has three tiers and a per-country condition, which is
+ * far easier to state, and to test, as a function than as an ORDER BY.
  */
 export async function selectFacts(
   prisma: PrismaClient,
@@ -224,81 +295,51 @@ export async function selectFacts(
     userId: string | null;
     filters: SelectionFilters;
     limit: number;
-    excludeFactIds?: number[];
+    /** Guest only: clue id → epoch ms it was last answered. */
+    seenFacts?: Record<string, number>;
   },
 ): Promise<SelectedFact[]> {
-  const { userId, filters, limit, excludeFactIds } = options;
+  const { userId, filters, limit, seenFacts } = options;
   const region = filters.region === ALL_FILTER ? null : filters.region;
   const difficulty = filters.difficulty === ALL_FILTER ? null : filters.difficulty;
 
-  const overFetch = Math.min(limit * 4, 600);
+  const rows =
+    userId !== null
+      ? await prisma.$queryRawUnsafe<
+          { fact_id: number; country_id: number; fact: string; last_seen: Date | null }[]
+        >(
+          `SELECT f.id AS fact_id, f.country_id, f.fact, fp.last_answered_at AS last_seen
+             FROM country_facts f
+             JOIN countries c ON c.id = f.country_id
+             LEFT JOIN fact_progress fp ON fp.fact_id = f.id AND fp.user_id = $3::uuid
+            WHERE ($1::text IS NULL OR c.region = $1)
+              AND ($2::text IS NULL OR f.difficulty = $2)`,
+          region,
+          difficulty,
+          userId,
+        )
+      : (
+          await prisma.$queryRawUnsafe<{ fact_id: number; country_id: number; fact: string }[]>(
+            `SELECT f.id AS fact_id, f.country_id, f.fact
+               FROM country_facts f
+               JOIN countries c ON c.id = f.country_id
+              WHERE ($1::text IS NULL OR c.region = $1)
+                AND ($2::text IS NULL OR f.difficulty = $2)`,
+            region,
+            difficulty,
+          )
+        ).map((row) => ({ ...row, last_seen: null }));
 
-  let rows: { fact_id: number; country_id: number; fact: string }[];
-
-  if (userId !== null) {
-    rows = await prisma.$queryRawUnsafe<typeof rows>(
-      `SELECT f.id AS fact_id, f.country_id, f.fact
-         FROM country_facts f
-         JOIN countries c ON c.id = f.country_id
-         LEFT JOIN fact_progress fp ON fp.fact_id = f.id AND fp.user_id = $3::uuid
-        WHERE ($1::text IS NULL OR c.region = $1)
-          AND ($2::text IS NULL OR f.difficulty = $2)
-        ORDER BY fp.last_answered_at ASC NULLS FIRST, random()
-        LIMIT $4`,
-      region,
-      difficulty,
-      userId,
-      overFetch,
-    );
-  } else {
-    const excludeIds = excludeFactIds?.length ? excludeFactIds : [0];
-    rows = await prisma.$queryRawUnsafe<typeof rows>(
-      `SELECT f.id AS fact_id, f.country_id, f.fact
-         FROM country_facts f
-         JOIN countries c ON c.id = f.country_id
-        WHERE ($1::text IS NULL OR c.region = $1)
-          AND ($2::text IS NULL OR f.difficulty = $2)
-          AND f.id != ALL($4::int[])
-        ORDER BY random()
-        LIMIT $3`,
-      region,
-      difficulty,
-      overFetch,
-      excludeIds,
-    );
-
-    if (rows.length < limit && excludeFactIds?.length) {
-      const fallback = await prisma.$queryRawUnsafe<typeof rows>(
-        `SELECT f.id AS fact_id, f.country_id, f.fact
-           FROM country_facts f
-           JOIN countries c ON c.id = f.country_id
-          WHERE ($1::text IS NULL OR c.region = $1)
-            AND ($2::text IS NULL OR f.difficulty = $2)
-          ORDER BY random()
-          LIMIT $3`,
-        region,
-        difficulty,
-        overFetch,
-      );
-      const existingIds = new Set(rows.map((r) => r.fact_id));
-      for (const r of fallback) {
-        if (!existingIds.has(r.fact_id)) {
-          rows.push(r);
-          existingIds.add(r.fact_id);
-        }
-      }
-    }
-  }
-
-  const selected: SelectedFact[] = [];
-  const seenCountries = new Set<number>();
-  for (const row of rows) {
-    if (seenCountries.has(row.country_id)) continue;
-    seenCountries.add(row.country_id);
-    selected.push({ factId: row.fact_id, countryId: row.country_id, fact: row.fact });
-    if (selected.length >= limit) break;
-  }
-  return selected;
+  const candidates: ClueCandidate[] = rows.map((row) => {
+    const guestSeen = userId === null ? seenFacts?.[String(row.fact_id)] : undefined;
+    return {
+      factId: row.fact_id,
+      countryId: row.country_id,
+      fact: row.fact,
+      lastSeen: row.last_seen ? row.last_seen.getTime() : (guestSeen ?? null),
+    };
+  });
+  return pickClues(candidates, limit);
 }
 
 export function clampQuestionCount(requested: unknown): number {
@@ -521,5 +562,23 @@ export async function recordFactProgress(
     where: { userId_factId: { userId, factId } },
     create: { userId, factId, lastAnsweredAt: answeredAt },
     update: { lastAnsweredAt: answeredAt },
+  });
+}
+
+/**
+ * Makes sure a clue has a rotation row, without moving one that exists: for the
+ * replay of an answer that was already recorded, where the clue may have been
+ * answered again since in a later round.
+ */
+export async function ensureFactProgress(
+  prisma: PrismaClient,
+  userId: string,
+  factId: number,
+  answeredAt: Date,
+): Promise<void> {
+  await prisma.factProgress.upsert({
+    where: { userId_factId: { userId, factId } },
+    create: { userId, factId, lastAnsweredAt: answeredAt },
+    update: {},
   });
 }

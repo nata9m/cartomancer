@@ -2,11 +2,12 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import type { QuizSession } from '@cartomancer/shared';
+import { DEFAULT_QUESTION_COUNT, type QuizSession } from '@cartomancer/shared';
 import { startQuizSession, startRecallSession } from './client-api';
 import type { Filters } from './filters';
 import { preloadQuestionFlags } from './flag-art';
 import { saveGuestQuiz, saveGuestRecall } from './guest-store';
+import { setRoundNote } from './round-note';
 
 export const pendingKeyFor = (quizTypeKey: string, questionCount?: number): string =>
   `${quizTypeKey}:${questionCount ?? 'default'}`;
@@ -18,8 +19,7 @@ export const pendingKeyFor = (quizTypeKey: string, questionCount?: number): stri
  * rather than through useSearchParams, so the subtree is not opted out of server
  * rendering.
  *
- * Returns the created session so trivia callers can extract fact IDs for guest
- * rotation tracking.
+ * Returns the created session.
  */
 export function useSessionStarter(filters: Filters) {
   const router = useRouter();
@@ -29,7 +29,7 @@ export function useSessionStarter(filters: Filters) {
   async function startQuiz(
     quizTypeKey: string,
     questionCount?: number,
-    excludeFactIds?: number[],
+    seenFacts?: Record<string, number>,
   ): Promise<QuizSession | null> {
     setPendingKey(pendingKeyFor(quizTypeKey, questionCount));
     setError(null);
@@ -39,12 +39,27 @@ export function useSessionStarter(filters: Filters) {
         region: filters.region,
         difficulty: filters.difficulty,
         ...(questionCount === undefined ? {} : { questionCount }),
-        ...(excludeFactIds?.length ? { excludeFactIds } : {}),
+        ...(seenFacts && Object.keys(seenFacts).length > 0 ? { seenFacts } : {}),
       });
       if (session.isGuest) {
         saveGuestQuiz({ session, answers: [] });
       }
       preloadQuestionFlags(session.questions[0]);
+      // A round is never padded with repeats (#70), so one that the filters
+      // cannot fill comes back short, and the player is told why on its first
+      // question rather than left to count.
+      if (session.quizType.category === 'trivia') {
+        const asked = questionCount ?? DEFAULT_QUESTION_COUNT;
+        if (session.questions.length < asked) {
+          const n = session.questions.length;
+          setRoundNote(
+            session.id,
+            n === 1
+              ? 'Only 1 country has a clue matching these filters.'
+              : `Only ${n} countries have a clue matching these filters.`,
+          );
+        }
+      }
       router.push(`/quiz/${session.id}`);
       return session;
     } catch (cause) {

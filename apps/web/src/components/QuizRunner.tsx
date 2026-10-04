@@ -15,6 +15,8 @@ import {
 } from '@/lib/client-api';
 import { preloadQuestionFlags } from '@/lib/flag-art';
 import { isGuestSessionId, loadGuestQuiz, saveGuestQuiz, type GuestAnswer } from '@/lib/guest-store';
+import { getRoundNote } from '@/lib/round-note';
+import { markFactSeen } from '@/lib/seen-facts';
 
 type Phase = 'answering' | 'revealed';
 
@@ -162,6 +164,12 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
         setAnsweredCount((count) => count + 1);
 
         if (isGuest) {
+          // A guest's clue rotation lives in this browser, and a clue is met when
+          // it is answered — not when a round that might be abandoned starts
+          // (#70). Giving up counts: the clue was shown and its answer revealed.
+          if (question.factId !== undefined) {
+            markFactSeen(question.factId);
+          }
           const stored = loadGuestQuiz(session.id);
           const entry: GuestAnswer = {
             sequence: question.sequence,
@@ -316,6 +324,10 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
           {index + 1}/{total}
         </span>
       </div>
+
+      {index === 0 && phase === 'answering' && getRoundNote(session.id) ? (
+        <p className="inline-note">{getRoundNote(session.id)}</p>
+      ) : null}
 
       {category === 'trivia' ? (
         <div className="clue-card">

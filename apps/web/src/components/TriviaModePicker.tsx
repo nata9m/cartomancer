@@ -1,9 +1,8 @@
 'use client';
 
-import { DEFAULT_QUESTION_COUNT, type QuizSession } from '@cartomancer/shared';
 import { ModePicker } from './ModePicker';
 import type { Filters } from '@/lib/filters';
-import { addSeenFactIds, getSeenFactIds, resetSeenFacts } from '@/lib/seen-facts';
+import { getSeenFacts } from '@/lib/seen-facts';
 
 /**
  * Fun facts: the shared mode screen (#49), plus the part only trivia has — the
@@ -12,32 +11,18 @@ import { addSeenFactIds, getSeenFactIds, resetSeenFacts } from '@/lib/seen-facts
  * Both cards draw from one pool of clues, so the rotation is deliberately not
  * per mode: a clue met in multiple choice does not come back as the next
  * type-in question (#42). The signed-in side already works that way, keying
- * fact_progress by user and fact rather than by quiz type.
+ * fact_progress by user and fact rather than by quiz type. The guest's list is
+ * handed to the api, which does the ordering; recording a clue as met happens
+ * when it is answered (QuizRunner), not here when a round starts (#70).
  */
 export function TriviaModePicker({ filters }: { filters: Filters }) {
-  function handleStarted(session: QuizSession, requested: number | undefined): void {
-    const asked = requested ?? DEFAULT_QUESTION_COUNT;
-    const newIds = session.questions
-      .map((question) => question.factId)
-      .filter((id): id is number => id != null);
-
-    if (session.questions.length < asked) {
-      // The pool for this filter combo is exhausted; reset so the next round
-      // starts a fresh cycle rather than replaying the tail.
-      resetSeenFacts(filters);
-    } else {
-      addSeenFactIds(filters, newIds);
-    }
-  }
-
   return (
     <ModePicker
       title="Fun facts"
       filters={filters}
       showDifficulty
       showQuestionCount
-      excludeIdsForStart={() => getSeenFactIds(filters)}
-      onStarted={handleStarted}
+      seenFactsForStart={getSeenFacts}
       groups={[
         {
           label: 'Multiple choice',
