@@ -136,7 +136,11 @@ describe('guest play', () => {
 });
 
 describe('fuzzy answer matching', () => {
-  const check = async (countryName: string, answer: string, quizTypeKey = 'capitals-cap2c-type') => {
+  const check = async (
+    countryName: string,
+    answer: string,
+    quizTypeKey = 'capitals-cap2c-type',
+  ) => {
     const country = await prisma.country.findFirstOrThrow({ where: { name: countryName } });
     const response = await app.inject({
       method: 'POST',
@@ -465,10 +469,7 @@ describe('type-in answers are hashed, not sent (#69)', () => {
           );
         } else {
           assert.equal(question.promptIsoCode, undefined);
-          assert.equal(
-            question.promptText,
-            domain === 'capital' ? country.name : country.capital,
-          );
+          assert.equal(question.promptText, domain === 'capital' ? country.name : country.capital);
         }
 
         const wire = JSON.stringify({
@@ -662,7 +663,9 @@ describe('fun-facts rotation (#70)', () => {
     const round = (await startSession(quizTypeKey, options)) as Round;
     if (answerThem) {
       for (const question of round.questions) {
-        const country = await prisma.country.findUniqueOrThrow({ where: { id: question.countryId } });
+        const country = await prisma.country.findUniqueOrThrow({
+          where: { id: question.countryId },
+        });
         await answer(round.id, question.sequence, country.name);
       }
       await finish(round.id);
@@ -757,7 +760,10 @@ describe('fun-facts rotation (#70)', () => {
     const met = await prisma.factProgress.findMany({ where: { userId }, select: { factId: true } });
     assert.deepEqual(
       met.map((m) => m.factId).sort((a, b) => a - b),
-      half.questions.slice(0, 5).map((q) => q.factId).sort((a, b) => a - b),
+      half.questions
+        .slice(0, 5)
+        .map((q) => q.factId)
+        .sort((a, b) => a - b),
     );
   });
 
@@ -773,7 +779,10 @@ describe('fun-facts rotation (#70)', () => {
 
     const replay = await answer(round.id, question.sequence, country.name);
     assert.equal(replay.matchedBy, 'replay');
-    assert.equal(await prisma.factProgress.count({ where: { userId, factId: question.factId } }), 1);
+    assert.equal(
+      await prisma.factProgress.count({ where: { userId, factId: question.factId } }),
+      1,
+    );
 
     // …without dragging a later, newer sighting backwards.
     const later = new Date(Date.now() + 86_400_000);
@@ -817,7 +826,7 @@ describe('fun-facts rotation (#70)', () => {
       const played = await startAsGuest('trivia-fact2c-type', options, seen);
       for (const question of played.questions) {
         factIds.push(question.factId);
-        seen[String(question.factId)] = (clock += 10);
+        seen[String(question.factId)] = clock += 10;
       }
     }
     assert.equal(new Set(factIds).size, 20, 'a guest saw a clue twice before the pool was spent');
@@ -839,15 +848,11 @@ describe('fun-facts rotation (#70)', () => {
       { region: undefined, difficulty: undefined },
     ];
     for (const plan of plans) {
-      const played = await startAsGuest(
-        'trivia-fact2c-mc',
-        { ...plan, questionCount: 12 },
-        seen,
-      );
+      const played = await startAsGuest('trivia-fact2c-mc', { ...plan, questionCount: 12 }, seen);
       await assertNoPrematureRepeat(played.questions, known, plan.region, plan.difficulty);
       for (const question of played.questions) {
         known.add(question.factId);
-        seen[String(question.factId)] = (clock += 10);
+        seen[String(question.factId)] = clock += 10;
       }
     }
   });
@@ -862,7 +867,10 @@ describe('fun-facts rotation (#70)', () => {
     const next = await startAsGuest('trivia-fact2c-type', { ...options, questionCount: 8 }, seen);
     assert.deepEqual(
       next.questions.map((q) => q.factId).sort((a, b) => a - b),
-      all.questions.slice(0, 8).map((q) => q.factId).sort((a, b) => a - b),
+      all.questions
+        .slice(0, 8)
+        .map((q) => q.factId)
+        .sort((a, b) => a - b),
       'the new cycle starts with the oldest',
     );
   });
@@ -1205,7 +1213,11 @@ describe('signed-in quiz session', () => {
   it('never repeats a country inside one trivia session', async () => {
     const session = await startSession('trivia-fact2c-type', { questionCount: 30 });
     const ids = session.questions.map((q: { countryId: number }) => q.countryId);
-    assert.equal(new Set(ids).size, ids.length, 'every trivia question must be a different country');
+    assert.equal(
+      new Set(ids).size,
+      ids.length,
+      'every trivia question must be a different country',
+    );
   });
 
   it('never repeats a country inside one session', async () => {
@@ -1286,8 +1298,13 @@ describe('day streak is counted in the player timezone (#66)', () => {
   const answeredAt = async (instants: string[]) => {
     await prisma.quizSession.deleteMany({ where: { createdBy: tzUserId } });
     if (instants.length === 0) return;
-    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: 'capitals-c2cap-mc' } });
-    const countries = await prisma.country.findMany({ take: instants.length, orderBy: { id: 'asc' } });
+    const quizType = await prisma.quizType.findUniqueOrThrow({
+      where: { key: 'capitals-c2cap-mc' },
+    });
+    const countries = await prisma.country.findMany({
+      take: instants.length,
+      orderBy: { id: 'asc' },
+    });
     const session = await prisma.quizSession.create({
       data: {
         quizTypeId: quizType.id,
@@ -1295,7 +1312,10 @@ describe('day streak is counted in the player timezone (#66)', () => {
         createdBy: tzUserId,
         participants: { create: [{ userId: tzUserId }] },
         questions: {
-          create: countries.map((country, index) => ({ sequence: index + 1, countryId: country.id })),
+          create: countries.map((country, index) => ({
+            sequence: index + 1,
+            countryId: country.id,
+          })),
         },
       },
     });
@@ -1346,11 +1366,19 @@ describe('day streak is counted in the player timezone (#66)', () => {
     const now = '2026-09-30T13:00:00Z'; // Wednesday 09:00 New York
 
     const local = await summaryAt(now, 'America/New_York');
-    assert.deepEqual(local.weekActivity, [false, true, false, false, false, false, false], 'Tuesday');
+    assert.deepEqual(
+      local.weekActivity,
+      [false, true, false, false, false, false, false],
+      'Tuesday',
+    );
     assert.equal(local.dayStreak, 1, 'played yesterday, not yet today');
 
     const utc = await summaryAt(now);
-    assert.deepEqual(utc.weekActivity, [false, false, true, false, false, false, false], 'Wednesday');
+    assert.deepEqual(
+      utc.weekActivity,
+      [false, false, true, false, false, false, false],
+      'Wednesday',
+    );
   });
 
   it('UTC-4: just after UTC midnight it is still the previous local day', async () => {
@@ -1390,7 +1418,10 @@ describe('day streak is counted in the player timezone (#66)', () => {
 
   describe('requestTimeZone', () => {
     const request = (header?: string, tz?: unknown) =>
-      ({ headers: header === undefined ? {} : { 'x-cartomancer-timezone': header }, query: { tz } }) as never;
+      ({
+        headers: header === undefined ? {} : { 'x-cartomancer-timezone': header },
+        query: { tz },
+      }) as never;
 
     it('prefers the header, then ?tz=, then UTC', () => {
       assert.equal(requestTimeZone(request('Australia/Sydney')), 'Australia/Sydney');
@@ -1426,7 +1457,11 @@ describe('day streak is counted in the player timezone (#66)', () => {
       });
       assert.equal(response.statusCode, 200, response.body);
       // One answer: it is a streak of 1 if it was today or yesterday, else none.
-      assert.equal(response.json().summary.dayStreak, daysAgo <= 1 ? 1 : 0, `${zone}, ${daysAgo}d ago`);
+      assert.equal(
+        response.json().summary.dayStreak,
+        daysAgo <= 1 ? 1 : 0,
+        `${zone}, ${daysAgo}d ago`,
+      );
     }
 
     // A zone that is not one is UTC, not a failed home screen.
@@ -1460,7 +1495,9 @@ describe('answering is atomic and safe to race (#54)', () => {
   before(async () => {
     await prisma.user.deleteMany({ where: { email: EMAIL } });
     playerId = (
-      await prisma.user.create({ data: { email: EMAIL, name: 'Atomic Test', authProvider: 'google' } })
+      await prisma.user.create({
+        data: { email: EMAIL, name: 'Atomic Test', authProvider: 'google' },
+      })
     ).id;
   });
 
@@ -1952,14 +1989,18 @@ describe('active recall', () => {
       assert.equal((await stamp())?.getTime(), firstStamp.getTime());
       const stored = await prisma.quizSession.findUniqueOrThrow({ where: { id: session.id } });
       assert.equal(stored.status, 'finished');
-      } finally {
+    } finally {
       await prisma.user.deleteMany({ where: { email } });
     }
   });
 
   it('matches guest recall guesses without persisting them', async () => {
     const sessionsBefore = await prisma.quizSession.count();
-    const start = await app.inject({ method: 'POST', url: '/api/recall', payload: { region: 'Europe' } });
+    const start = await app.inject({
+      method: 'POST',
+      url: '/api/recall',
+      payload: { region: 'Europe' },
+    });
     const session = start.json();
     assert.equal(session.isGuest, true);
     assert.equal(session.totalInRegion, 44);
@@ -2046,7 +2087,10 @@ describe('account profile (#61)', () => {
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.json().name, 'Natalia');
     assert.equal((await get()).json().name, 'Natalia', 'a later read sees it');
-    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: profileUserId } })).name, 'Natalia');
+    assert.equal(
+      (await prisma.user.findUniqueOrThrow({ where: { id: profileUserId } })).name,
+      'Natalia',
+    );
   });
 
   it('null clears the name', async () => {
@@ -2109,7 +2153,10 @@ describe('account profile (#61)', () => {
     });
     try {
       await patch({ name: 'Mine' });
-      assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: other.id } })).name, 'Other');
+      assert.equal(
+        (await prisma.user.findUniqueOrThrow({ where: { id: other.id } })).name,
+        'Other',
+      );
     } finally {
       await prisma.user.delete({ where: { id: other.id } });
     }
@@ -2161,7 +2208,12 @@ describe('deleting an account (#64)', () => {
     const email = `delete-${label}-${randomUUID().slice(0, 8)}@cartomancer.invalid`;
     created.push(email);
     const user = await prisma.user.create({
-      data: { email, name: `Delete ${label}`, authProvider: 'apple', image: 'https://example.invalid/a.png' },
+      data: {
+        email,
+        name: `Delete ${label}`,
+        authProvider: 'apple',
+        image: 'https://example.invalid/a.png',
+      },
     });
     await prisma.account.create({
       data: {
@@ -2185,7 +2237,9 @@ describe('deleting an account (#64)', () => {
     const player: Player = { id: user.id, email, sessionIds: [] };
 
     // A quiz session answered through the api: answer, progress, score.
-    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: 'capitals-c2cap-type' } });
+    const quizType = await prisma.quizType.findUniqueOrThrow({
+      where: { key: 'capitals-c2cap-type' },
+    });
     const countries = await prisma.country.findMany({ take: 3, orderBy: { id: 'asc' } });
     const quiz = await prisma.quizSession.create({
       data: {
@@ -2209,7 +2263,9 @@ describe('deleting an account (#64)', () => {
 
     // A trivia session, so the clue rotation has a row for this player too.
     const fact = await prisma.countryFact.findFirstOrThrow({ orderBy: { id: 'asc' } });
-    const triviaType = await prisma.quizType.findUniqueOrThrow({ where: { key: 'trivia-fact2c-type' } });
+    const triviaType = await prisma.quizType.findUniqueOrThrow({
+      where: { key: 'trivia-fact2c-type' },
+    });
     const trivia = await prisma.quizSession.create({
       data: {
         quizTypeId: triviaType.id,
@@ -2231,7 +2287,12 @@ describe('deleting an account (#64)', () => {
 
     // A recall round.
     const recall = (
-      await app.inject({ method: 'POST', url: '/api/recall', headers: as(player), payload: { region: 'Oceania' } })
+      await app.inject({
+        method: 'POST',
+        url: '/api/recall',
+        headers: as(player),
+        payload: { region: 'Oceania' },
+      })
     ).json();
     player.sessionIds.push(recall.id);
     for (const name of ['Fiji', 'Samoa']) {
@@ -2261,7 +2322,12 @@ describe('deleting an account (#64)', () => {
   });
 
   const remove = (player: Pick<Player, 'id'>, payload: unknown = { confirm: 'DELETE' }) =>
-    app.inject({ method: 'DELETE', url: '/api/me', headers: as(player), payload: payload as never });
+    app.inject({
+      method: 'DELETE',
+      url: '/api/me',
+      headers: as(player),
+      payload: payload as never,
+    });
 
   it('removes the player and every row that refers to them', async () => {
     const player = await makePlayer('everything');
@@ -2304,7 +2370,9 @@ describe('deleting an account (#64)', () => {
 
     // A session the leaving player made and the staying player took part in: it
     // is that player's history too, so it stays — minus the one who left.
-    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: 'capitals-c2cap-type' } });
+    const quizType = await prisma.quizType.findUniqueOrThrow({
+      where: { key: 'capitals-c2cap-type' },
+    });
     const country = await prisma.country.findFirstOrThrow({ orderBy: { id: 'desc' } });
     const shared = await prisma.quizSession.create({
       data: {
@@ -2334,8 +2402,14 @@ describe('deleting an account (#64)', () => {
       include: { participants: true, answers: true },
     });
     assert.equal(kept.createdBy, null, 'the creator is anonymised');
-    assert.deepEqual(kept.participants.map((p) => p.userId), [staying.id]);
-    assert.deepEqual(kept.answers.map((a) => a.userId), [staying.id]);
+    assert.deepEqual(
+      kept.participants.map((p) => p.userId),
+      [staying.id],
+    );
+    assert.deepEqual(
+      kept.answers.map((a) => a.userId),
+      [staying.id],
+    );
     assert.equal(await prisma.user.count({ where: { id: staying.id } }), 1);
 
     await prisma.quizSession.delete({ where: { id: shared.id } });
@@ -2363,7 +2437,11 @@ describe('deleting an account (#64)', () => {
   });
 
   it('is for signed-in players only', async () => {
-    const response = await app.inject({ method: 'DELETE', url: '/api/me', payload: { confirm: 'DELETE' } });
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/me',
+      payload: { confirm: 'DELETE' },
+    });
     assert.equal(response.statusCode, 403);
   });
 
@@ -2395,7 +2473,10 @@ describe('deleting an account (#64)', () => {
     for (const response of responses) {
       assert.equal(response.statusCode, 204, response.body);
     }
-    assert.equal(Object.values(await footprint(player)).reduce((a, b) => a + b, 0), 0);
+    assert.equal(
+      Object.values(await footprint(player)).reduce((a, b) => a + b, 0),
+      0,
+    );
   });
 
   it('is all or nothing: a failure part-way through deletes nothing', async () => {
@@ -2415,14 +2496,24 @@ describe('deleting an account (#64)', () => {
     try {
       const failed = await remove(player);
       assert.equal(failed.statusCode, 500);
-      assert.deepEqual(await footprint(player), before, 'the sessions and tokens came back with it');
-      assert.equal(await prisma.quizSession.count({ where: { id: { in: player.sessionIds } } }), player.sessionIds.length);
+      assert.deepEqual(
+        await footprint(player),
+        before,
+        'the sessions and tokens came back with it',
+      );
+      assert.equal(
+        await prisma.quizSession.count({ where: { id: { in: player.sessionIds } } }),
+        player.sessionIds.length,
+      );
     } finally {
       await prisma.$executeRawUnsafe('DROP TRIGGER tmp_block_user_delete ON users');
       await prisma.$executeRawUnsafe('DROP FUNCTION tmp_block_user_delete()');
     }
     assert.equal((await remove(player)).statusCode, 204, 'and the retry then works');
-    assert.equal(Object.values(await footprint(player)).reduce((a, b) => a + b, 0), 0);
+    assert.equal(
+      Object.values(await footprint(player)).reduce((a, b) => a + b, 0),
+      0,
+    );
   });
 });
 
@@ -2476,11 +2567,7 @@ describe('missed questions carry the question, not the country twice', () => {
         promptsAsked.get(missed.countryId),
         'the clue on the results screen must be the clue that was asked',
       );
-      assert.notEqual(
-        missed.promptText,
-        missed.correctAnswer,
-        'the clue is not the country name',
-      );
+      assert.notEqual(missed.promptText, missed.correctAnswer, 'the clue is not the country name');
       assert.ok(missed.sequence > 0, 'rows are keyed by the question, not the country');
     }
   });
@@ -2627,7 +2714,11 @@ describe('catalog', () => {
 
 describe('internal api key', () => {
   it('rejects callers without the shared secret when one is configured', async () => {
-    const guarded = await buildServer({ ...loadEnv(), LOG_LEVEL: 'warn', INTERNAL_API_KEY: 'sekrit' });
+    const guarded = await buildServer({
+      ...loadEnv(),
+      LOG_LEVEL: 'warn',
+      INTERNAL_API_KEY: 'sekrit',
+    });
     const denied = await guarded.inject({ method: 'GET', url: '/api/summary' });
     assert.equal(denied.statusCode, 401);
 
@@ -2648,7 +2739,12 @@ describe('internal api key', () => {
     // means the api trusts any caller's x-cartomancer-user-id. A warning is the
     // wrong terminal behaviour in a cluster, where nobody reads boot logs.
     await assert.rejects(
-      buildServer({ ...loadEnv(), LOG_LEVEL: 'warn', INTERNAL_API_KEY: '', NODE_ENV: 'production' }),
+      buildServer({
+        ...loadEnv(),
+        LOG_LEVEL: 'warn',
+        INTERNAL_API_KEY: '',
+        NODE_ENV: 'production',
+      }),
       /INTERNAL_API_KEY is required when NODE_ENV=production/,
     );
   });

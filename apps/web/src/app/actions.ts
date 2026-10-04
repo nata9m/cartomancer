@@ -81,7 +81,10 @@ export async function updateDisplayName(
     if (cause instanceof ApiError && cause.status === 400) {
       return { status: 'error', message: 'That name is not allowed. Try a different one.' };
     }
-    return { status: 'error', message: 'Could not save that. Check your connection and try again.' };
+    return {
+      status: 'error',
+      message: 'Could not save that. Check your connection and try again.',
+    };
   }
 }
 

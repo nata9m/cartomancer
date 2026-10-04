@@ -26,11 +26,7 @@ export function ActionCard({
       disabled={disabled || pending}
       aria-busy={pending}
     >
-      <CardShell
-        icon={icon}
-        title={title}
-        description={pending ? 'Starting…' : description}
-      />
+      <CardShell icon={icon} title={title} description={pending ? 'Starting…' : description} />
     </button>
   );
 }

@@ -54,8 +54,8 @@ export default function CreditsPage() {
       </div>
 
       <p className="screen-note">
-        The capitals, the clues and the difficulty tiers are Cartomancer&apos;s own. Everything
-        else a country&apos;s page shows comes from one of these.
+        The capitals, the clues and the difficulty tiers are Cartomancer&apos;s own. Everything else
+        a country&apos;s page shows comes from one of these.
       </p>
 
       {/* The same stacked-row list the country pages use for their clues: a

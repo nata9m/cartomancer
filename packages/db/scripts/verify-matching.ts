@@ -54,7 +54,9 @@ async function verifyNormalisation(): Promise<number> {
     const inTypeScript = normalizeAnswer(row.v);
     if (inTypeScript !== row.n) {
       mismatches += 1;
-      console.error(`  MISMATCH ${JSON.stringify(row.v)}: sql=${JSON.stringify(row.n)} ts=${JSON.stringify(inTypeScript)}`);
+      console.error(
+        `  MISMATCH ${JSON.stringify(row.v)}: sql=${JSON.stringify(row.n)} ts=${JSON.stringify(inTypeScript)}`,
+      );
     }
   }
   console.log(`normalisation: ${rows.length} values checked, ${mismatches} mismatches`);

@@ -14,7 +14,12 @@ import {
   submitAnswer,
 } from '@/lib/client-api';
 import { preloadQuestionFlags } from '@/lib/flag-art';
-import { isGuestSessionId, loadGuestQuiz, saveGuestQuiz, type GuestAnswer } from '@/lib/guest-store';
+import {
+  isGuestSessionId,
+  loadGuestQuiz,
+  saveGuestQuiz,
+  type GuestAnswer,
+} from '@/lib/guest-store';
 import { getRoundNote } from '@/lib/round-note';
 import { markFactSeen } from '@/lib/seen-facts';
 
@@ -498,7 +503,12 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
             </p>
           ) : null}
 
-          <button type="button" className="button-primary" onClick={() => void next()} disabled={busy}>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={() => void next()}
+            disabled={busy}
+          >
             {index >= total - 1 ? 'See results' : 'Next'}
             <IconArrowRight size={16} stroke={2} />
           </button>

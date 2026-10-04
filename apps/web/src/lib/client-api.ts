@@ -137,10 +137,7 @@ export type PersistedRecallSession = RecallSession & {
 export const loadRecallSession = (sessionId: string): Promise<PersistedRecallSession> =>
   bff<PersistedRecallSession>(`recall/${sessionId}`);
 
-export const submitRecallGuess = (
-  sessionId: string,
-  guess: string,
-): Promise<RecallGuessResult> =>
+export const submitRecallGuess = (sessionId: string, guess: string): Promise<RecallGuessResult> =>
   bff<RecallGuessResult>(`recall/${sessionId}/guesses`, {
     method: 'POST',
     body: { guess },
@@ -160,7 +157,7 @@ export const finishRecallSession = (sessionId: string): Promise<RecallResults> =
 export const loadRecallResults = (sessionId: string): Promise<RecallResults> =>
   bff<RecallResults>(`recall/${sessionId}/results`);
 
-export const loadCountries = (region: string): Promise<{ countries: CountryRef[]; total: number }> =>
-  bff<{ countries: CountryRef[]; total: number }>(
-    `countries?region=${encodeURIComponent(region)}`,
-  );
+export const loadCountries = (
+  region: string,
+): Promise<{ countries: CountryRef[]; total: number }> =>
+  bff<{ countries: CountryRef[]; total: number }>(`countries?region=${encodeURIComponent(region)}`);

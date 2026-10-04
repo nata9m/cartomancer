@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useState } from 'react';
 import { DISPLAY_NAME_MAX_LENGTH, displayNameProblem } from '@cartomancer/shared';
 import { IconCheck } from './icons';
 import { updateDisplayName } from '@/app/actions';
@@ -24,20 +24,24 @@ export function AccountNameForm({
   /** What the player is called while the field is blank. */
   fallback: string;
 }) {
-  const [state, formAction, pending] = useActionState<NameFormState, FormData>(
-    updateDisplayName,
-    { status: 'idle' },
-  );
+  const [state, formAction, pending] = useActionState<NameFormState, FormData>(updateDisplayName, {
+    status: 'idle',
+  });
   const [value, setValue] = useState(initialName ?? '');
-  const [saved, setSaved] = useState(initialName ?? '');
+  // What is stored: the name as loaded, until a save reports back what the api
+  // actually kept (it trims). Derived, so there is no copy to keep in step.
+  const saved = state.status === 'saved' ? (state.name ?? '') : (initialName ?? '');
 
-  // After a save, show what was actually stored (the api trims it).
-  useEffect(() => {
+  // After a save, show what was stored rather than what was typed. Adjusted
+  // during render when the result arrives, not in an effect, which would paint
+  // the untrimmed text first and then render again.
+  const [seenState, setSeenState] = useState(state);
+  if (state !== seenState) {
+    setSeenState(state);
     if (state.status === 'saved') {
-      setSaved(state.name ?? '');
       setValue(state.name ?? '');
     }
-  }, [state]);
+  }
 
   const trimmed = value.trim();
   const problem = trimmed === '' ? null : displayNameProblem(trimmed);
@@ -64,7 +68,11 @@ export function AccountNameForm({
           aria-describedby="display-name-hint"
           onChange={(event) => setValue(event.target.value)}
         />
-        <button type="submit" className="button-save" disabled={pending || unchanged || problem !== null}>
+        <button
+          type="submit"
+          className="button-save"
+          disabled={pending || unchanged || problem !== null}
+        >
           {pending ? 'Saving…' : 'Save'}
         </button>
       </div>

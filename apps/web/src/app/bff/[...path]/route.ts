@@ -1,5 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { API_INTERNAL_URL, TIMEZONE_HEADER, currentTimeZone, currentUserId } from '@/lib/server-api';
+import {
+  API_INTERNAL_URL,
+  TIMEZONE_HEADER,
+  currentTimeZone,
+  currentUserId,
+} from '@/lib/server-api';
 
 /**
  * Backend-for-frontend proxy.
@@ -40,7 +45,12 @@ async function forward(request: NextRequest, path: string[]): Promise<Response> 
     headers['content-type'] = 'application/json';
   }
 
-  const upstream = await fetch(target, { method: request.method, headers, body, cache: 'no-store' });
+  const upstream = await fetch(target, {
+    method: request.method,
+    headers,
+    body,
+    cache: 'no-store',
+  });
   const payload = await upstream.text();
   return new NextResponse(payload, {
     status: upstream.status,

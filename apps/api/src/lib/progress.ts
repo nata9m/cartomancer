@@ -233,7 +233,7 @@ export function isValidTimeZone(zone: string): boolean {
 }
 
 /** ISO `YYYY-MM-DD` for an instant in a given timezone. */
-function localDateParts(instant: Date, zone: string): string {
+export function localDateParts(instant: Date, zone: string): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: zone,
     year: 'numeric',
@@ -242,7 +242,7 @@ function localDateParts(instant: Date, zone: string): string {
   }).format(instant);
 }
 
-function shiftDay(isoDate: string, days: number): string {
+export function shiftDay(isoDate: string, days: number): string {
   const [year, month, day] = isoDate.split('-').map(Number) as [number, number, number];
   const date = new Date(Date.UTC(year, month - 1, day));
   date.setUTCDate(date.getUTCDate() + days);
@@ -253,7 +253,7 @@ function shiftDay(isoDate: string, days: number): string {
  * Consecutive active days ending today — or ending yesterday, so that a streak
  * is still shown before the first answer of the day rather than reading zero.
  */
-function countStreak(activeDays: ReadonlySet<string>, today: string): number {
+export function countStreak(activeDays: ReadonlySet<string>, today: string): number {
   let cursor = activeDays.has(today) ? today : shiftDay(today, -1);
   if (!activeDays.has(cursor)) {
     return 0;
@@ -267,7 +267,7 @@ function countStreak(activeDays: ReadonlySet<string>, today: string): number {
 }
 
 /** The seven days of the Monday-first week containing `today`. */
-function currentWeekDays(today: string): string[] {
+export function currentWeekDays(today: string): string[] {
   const [year, month, day] = today.split('-').map(Number) as [number, number, number];
   const date = new Date(Date.UTC(year, month - 1, day));
   const weekday = date.getUTCDay(); // 0 = Sunday

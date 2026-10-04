@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import type { QuizSession } from '@cartomancer/shared';
 import { ActionCard } from './ActionCard';
 import { FilterChips } from './FilterChips';
 import { IconArrowLeft } from './icons';

@@ -17,7 +17,9 @@ export async function registerCatalogRoutes(app: FastifyInstance): Promise<void>
     });
     const types = rows
       .map((row) => quizTypeByKey(row.key))
-      .filter((definition): definition is NonNullable<typeof definition> => definition !== undefined)
+      .filter(
+        (definition): definition is NonNullable<typeof definition> => definition !== undefined,
+      )
       .map(summarize);
     return { quizTypes: types, unmapped: rows.length - types.length };
   });

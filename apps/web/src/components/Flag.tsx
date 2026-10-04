@@ -31,6 +31,10 @@ export function Flag({
   lazy?: boolean;
 }) {
   return (
+    // A plain <img> on purpose: these are vendored SVGs served as static files,
+    // so next/image has nothing to resize or re-encode, and lib/flag-art warms
+    // them by URL — a loader hop in front of that would undo it.
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={flagSrc(isoCode)}
       // Generic when no label is passed, which is how the answer tiles use it:

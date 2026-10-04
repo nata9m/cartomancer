@@ -20,7 +20,9 @@ export function CardShell({
         <span className="card-title">{title}</span>
         <span className="card-description">{description}</span>
       </span>
-      <span className="card-chevron">{trailing ?? <IconChevronRight size={18} stroke={1.75} />}</span>
+      <span className="card-chevron">
+        {trailing ?? <IconChevronRight size={18} stroke={1.75} />}
+      </span>
     </>
   );
 }

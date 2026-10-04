@@ -145,7 +145,9 @@ export async function registerRecallRoutes(app: FastifyInstance): Promise<void> 
       return result;
     }
     if (recalledIds.has(match.countryId)) {
-      const country = await app.prisma.country.findUniqueOrThrow({ where: { id: match.countryId } });
+      const country = await app.prisma.country.findUniqueOrThrow({
+        where: { id: match.countryId },
+      });
       const result: RecallGuessResult = {
         accepted: false,
         duplicate: true,

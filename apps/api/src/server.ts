@@ -34,7 +34,7 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     if (env.NODE_ENV === 'production') {
       throw new Error(
         'INTERNAL_API_KEY is required when NODE_ENV=production: without it the api ' +
-          'would accept any caller\'s x-cartomancer-user-id header and serve another ' +
+          "would accept any caller's x-cartomancer-user-id header and serve another " +
           "user's progress. Set it to the same value as the web app's.",
       );
     }
@@ -51,7 +51,10 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       const origin = request.headers.origin;
       if (origin && allowed.includes(origin)) {
         reply.header('access-control-allow-origin', origin);
-        reply.header('access-control-allow-headers', 'authorization,content-type,x-cartomancer-user-id');
+        reply.header(
+          'access-control-allow-headers',
+          'authorization,content-type,x-cartomancer-user-id',
+        );
         reply.header('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
       }
       if (request.method === 'OPTIONS') {
@@ -77,7 +80,9 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     if (error instanceof z.ZodError) {
       return reply.code(400).send({
         error: 'bad_request',
-        message: error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '),
+        message: error.issues
+          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+          .join('; '),
       });
     }
     // A unique constraint is the database saying "that is already there", which
@@ -100,7 +105,9 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
   });
 
   app.setNotFoundHandler((request, reply) =>
-    reply.code(404).send({ error: 'not_found', message: `No route for ${request.method} ${request.url}` }),
+    reply
+      .code(404)
+      .send({ error: 'not_found', message: `No route for ${request.method} ${request.url}` }),
   );
 
   await registerHealthRoutes(app);

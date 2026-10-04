@@ -1,0 +1,12 @@
+{
+  // The web app's unit tests (#55), type-checked on their own.
+  //
+  // They are excluded from tsconfig.json on purpose: `next build` checks every
+  // file that config includes, and the container image installs only the web
+  // app's own dependencies — not the test runner — so a test file in the build's
+  // view would be an import it cannot resolve. `pnpm typecheck` runs both.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "incremental": false },
+  "include": ["next-env.d.ts", "src/**/*.test.ts", "src/**/*.test.tsx"],
+  "exclude": ["node_modules"]
+}

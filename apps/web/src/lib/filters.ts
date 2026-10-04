@@ -20,9 +20,7 @@ export const ALL = 'all';
  * Capitals and Flags (#49), so a link still carrying the chip's parameter from
  * #42 opens the same screen as one without it.
  */
-export function readFilters(
-  params: Record<string, string | string[] | undefined>,
-): Filters {
+export function readFilters(params: Record<string, string | string[] | undefined>): Filters {
   const pick = (value: string | string[] | undefined): string =>
     (Array.isArray(value) ? value[0] : value) ?? ALL;
   return {

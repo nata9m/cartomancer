@@ -260,18 +260,19 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       select: { countryId: true, wasCorrect: true },
     });
 
-    const payload: QuizSessionPayload & { answered: { countryId: number; wasCorrect: boolean }[] } = {
-      id: session.id,
-      quizType: summarize(definition),
-      regionFilter: (session.regionFilter ?? ALL_FILTER) as QuizSessionPayload['regionFilter'],
-      difficultyFilter: (session.difficultyFilter ??
-        ALL_FILTER) as QuizSessionPayload['difficultyFilter'],
-      questionCount: session.questionCount,
-      questions,
-      isGuest: false,
-      answerSalt,
-      answered,
-    };
+    const payload: QuizSessionPayload & { answered: { countryId: number; wasCorrect: boolean }[] } =
+      {
+        id: session.id,
+        quizType: summarize(definition),
+        regionFilter: (session.regionFilter ?? ALL_FILTER) as QuizSessionPayload['regionFilter'],
+        difficultyFilter: (session.difficultyFilter ??
+          ALL_FILTER) as QuizSessionPayload['difficultyFilter'],
+        questionCount: session.questionCount,
+        questions,
+        isGuest: false,
+        answerSalt,
+        answered,
+      };
     return payload;
   });
 
@@ -506,9 +507,7 @@ async function loadCountriesInOrder(
 ): Promise<Country[]> {
   const rows = await prisma.country.findMany({ where: { id: { in: countryIds } } });
   const byId = new Map(rows.map((row) => [row.id, row]));
-  return countryIds
-    .map((id) => byId.get(id))
-    .filter((row): row is Country => row !== undefined);
+  return countryIds.map((id) => byId.get(id)).filter((row): row is Country => row !== undefined);
 }
 
 /**
@@ -639,7 +638,8 @@ async function buildResults(
     sessionId,
     quizType: summarize(definition),
     regionFilter: (session.regionFilter ?? ALL_FILTER) as SessionResults['regionFilter'],
-    difficultyFilter: (session.difficultyFilter ?? ALL_FILTER) as SessionResults['difficultyFilter'],
+    difficultyFilter: (session.difficultyFilter ??
+      ALL_FILTER) as SessionResults['difficultyFilter'],
     score,
     total,
     percentCorrect: total === 0 ? 0 : Math.round((score / total) * 100),

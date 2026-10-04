@@ -16,3 +16,7 @@ coverage/
 # Next.js build/runtime
 .next/
 next-env.d.ts
+
+# Playwright (#55)
+/playwright-report/
+/test-results/

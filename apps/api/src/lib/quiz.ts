@@ -81,10 +81,7 @@ export function expectedAnswerFor(definition: QuizTypeDefinition, country: Count
  * This is the one list to extend if the accepted set ever grows: it has to say
  * exactly what `rankCandidates` says, or "exactly right" means two things.
  */
-export function acceptedAnswerForms(
-  definition: QuizTypeDefinition,
-  country: Country,
-): string[] {
+export function acceptedAnswerForms(definition: QuizTypeDefinition, country: Country): string[] {
   return answerDomainFor(definition) === 'capital'
     ? [country.capital, ...country.capitalAliases]
     : [country.name, ...country.nameAliases];
@@ -250,8 +247,7 @@ export function pickClues(
     .map((clue) => ({
       clue,
       tiebreak: random(),
-      rank:
-        clue.lastSeen !== null ? 2 : countriesWithSeenClue.has(clue.countryId) ? 1 : 0,
+      rank: clue.lastSeen !== null ? 2 : countriesWithSeenClue.has(clue.countryId) ? 1 : 0,
     }))
     .sort(
       (a, b) =>
@@ -472,7 +468,8 @@ function buildOptions(
     chosen.push(candidate);
   }
 
-  const showFlags = definition.category === 'flags' && definition.direction === 'country_to_attribute';
+  const showFlags =
+    definition.category === 'flags' && definition.direction === 'country_to_attribute';
   const options: QuizOption[] = shuffle([country, ...chosen]).map((c, index) => {
     const option: QuizOption = { id: `opt-${index + 1}`, label: label(c) };
     if (showFlags) {
