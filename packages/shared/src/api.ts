@@ -37,6 +37,17 @@ export interface QuizQuestion {
   promptIsoCode?: string;
   /** Absent for type-in and recall formats. */
   options?: QuizOption[];
+  /**
+   * Type-in formats only: `sha256(session salt + ':' + normalised form)` for the
+   * canonical answer and every accepted alias, so the browser can recognise a
+   * correct answer the moment it is typed without being told what it is (#69).
+   * See `answer-hash.ts` — including what this does and does not protect.
+   *
+   * The server never consults these; it re-matches the submitted answer as it
+   * always did. Absent means auto-accept is off, which is a degradation and
+   * never a correctness problem.
+   */
+  answerHashes?: string[];
 }
 
 export interface QuizSession {
@@ -48,6 +59,13 @@ export interface QuizSession {
   questions: QuizQuestion[];
   /** True when nothing about this session is persisted (guest play). */
   isGuest: boolean;
+  /**
+   * Salt for this payload's `answerHashes`, present for type-in formats only.
+   * Generated per response rather than stored: the hashes travel with it, so
+   * nothing has to match across two responses, and a rehydrated session simply
+   * gets a new one.
+   */
+  answerSalt?: string;
 }
 
 export interface StartSessionRequest {

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { matchesAcceptedAnswer } from '@cartomancer/shared';
 import type { AnswerResult, QuizQuestion, QuizSession } from '@cartomancer/shared';
 import { Flag } from './Flag';
 import { IconArrowRight, IconBulb, IconCheck, IconX } from './icons';
@@ -16,6 +17,17 @@ import { preloadQuestionFlags } from '@/lib/flag-art';
 import { isGuestSessionId, loadGuestQuiz, saveGuestQuiz, type GuestAnswer } from '@/lib/guest-store';
 
 type Phase = 'answering' | 'revealed';
+
+/**
+ * How long the type-in box waits after the last keystroke before testing what
+ * was typed against the question's answer hashes (#69).
+ *
+ * Short enough to read as instant — the "s" of "Paris" accepts it — and long
+ * enough that a burst of typing costs one hash rather than one per letter. It is
+ * not a grace period: there is nothing to disambiguate here, since each question
+ * has exactly one right answer (unlike recall's Niger/Nigeria, #68).
+ */
+const AUTO_ACCEPT_DEBOUNCE_MS = 150;
 
 /**
  * The shared quiz screen: capitals, flags and trivia in both directions, in
@@ -52,6 +64,14 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   /** What Try again does: whichever call just failed, with its arguments. */
   const retry = useRef<(() => Promise<void>) | null>(null);
+  /**
+   * The sequence auto-accept has already submitted, so it fires at most once
+   * per question. A ref rather than state because it has to be true the instant
+   * it is set: `busy` and `phase` are a render behind, and two submissions of
+   * the same answer — the debounce landing as Enter is pressed — would be two
+   * requests for one answer.
+   */
+  const autoAccepted = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +114,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     askedAt.current = Date.now();
+    autoAccepted.current = null;
     if (session?.quizType.format === 'type_in') {
       inputRef.current?.focus();
     }
@@ -177,6 +198,60 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     answerRef.current = answer;
   }, [answer]);
+
+  /**
+   * Type-in auto-accept (#69): a correct answer is accepted the moment it is
+   * typed, with no Enter and no tap — which on a phone is one tap saved per
+   * question.
+   *
+   * Only an *exact* match submits. The question carries salted hashes of the
+   * accepted spellings rather than the answer itself (see `answer-hash.ts`), and
+   * a hash only matches what it is: "Canbera" is indistinguishable from any
+   * other wrong answer here, so a typo is never marked wrong half-way through a
+   * word. It waits for Enter, where the server's fuzzy pass still forgives it.
+   *
+   * The match submits through the same `answer()` every other path uses, so the
+   * server re-checks and scores it exactly as it would a typed Enter. Nothing is
+   * decided here — and if that request fails (#58), the typed answer stays put
+   * and Try again owns the retry, rather than this effect resending it every
+   * 150 ms for as long as the connection is down.
+   */
+  useEffect(() => {
+    const salt = session?.answerSalt;
+    const hashes = question?.answerHashes;
+    const sequence = question?.sequence;
+    if (
+      !salt ||
+      !hashes ||
+      sequence === undefined ||
+      phase !== 'answering' ||
+      busy ||
+      autoAccepted.current !== null ||
+      typed.trim() === ''
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        const matches = await matchesAcceptedAnswer(salt, hashes, typed);
+        // The hash resolves a tick later, by which time another keystroke may
+        // have replaced what it was computed for, or the question may have moved
+        // on — submitting then would answer the wrong prompt with stale text.
+        if (cancelled || !matches || autoAccepted.current !== null) {
+          return;
+        }
+        autoAccepted.current = sequence;
+        void answerRef.current(typed);
+      })();
+    }, AUTO_ACCEPT_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [busy, phase, question, session, typed]);
 
   async function next(): Promise<void> {
     if (!session) return;

@@ -10,6 +10,7 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { getPrisma } from '@cartomancer/db';
+import { matchesAcceptedAnswer, normalizeAnswer } from '@cartomancer/shared';
 import type { FastifyInstance } from 'fastify';
 import { loadEnv } from './env.js';
 import { buildServer } from './server.js';
@@ -241,6 +242,305 @@ describe('aliases are scored against the domain they name (#35)', () => {
       const result = await check(quizTypeKey, 'Turkey', 'Istanbul');
       assert.equal(result.wasCorrect, false, `${quizTypeKey} accepted Istanbul`);
     }
+  });
+});
+
+/**
+ * The type-in questions let the browser accept a correct answer the moment it
+ * is typed, which means the browser has to recognise it without being told it
+ * (#69). These tests hold the two halves of that bargain: the client can match
+ * exactly what the server would accept, and the answer itself never leaves the
+ * api.
+ *
+ * `matchesAcceptedAnswer` is the function the quiz screen calls, so a passing
+ * test here is a statement about the browser, not only about the payload.
+ */
+describe('type-in answers are hashed, not sent (#69)', () => {
+  interface HashedQuestion {
+    sequence: number;
+    countryId: number;
+    promptText: string;
+    answerHashes?: string[];
+    options?: unknown[];
+  }
+
+  const sessionOver = async (quizTypeKey: string, countryNames: string[]) => {
+    const countries = await Promise.all(
+      countryNames.map((name) => prisma.country.findFirstOrThrow({ where: { name } })),
+    );
+    const session = await startSessionWith(
+      quizTypeKey,
+      countries.map((country) => country.id),
+    );
+    return { session, countries };
+  };
+
+  it('accepts the canonical answer as soon as it is typed, in any casing', async () => {
+    const { session } = await sessionOver('capitals-c2cap-type', ['France']);
+    const salt: string = session.answerSalt;
+    const hashes: string[] = session.questions[0].answerHashes;
+    assert.ok(salt, 'a type-in round needs a salt for its hashes');
+
+    for (const typed of ['Paris', 'paris', 'PARIS', '  Paris  ']) {
+      assert.equal(
+        await matchesAcceptedAnswer(salt, hashes, typed),
+        true,
+        `"${typed}" should auto-accept for France`,
+      );
+    }
+  });
+
+  it('accepts the aliases the server accepts, in both directions', async () => {
+    const capitals = await sessionOver('capitals-c2cap-type', ['Czechia', 'Ukraine']);
+    for (const typed of ['Praha', 'Prague', 'Kyiv', 'Kiev']) {
+      const matched = await Promise.all(
+        capitals.session.questions.map((question: HashedQuestion) =>
+          matchesAcceptedAnswer(capitals.session.answerSalt, question.answerHashes ?? [], typed),
+        ),
+      );
+      assert.ok(matched.some(Boolean), `"${typed}" should auto-accept for its capital`);
+    }
+
+    const flags = await sessionOver('flags-flag2c-type', ["Côte d'Ivoire", 'Myanmar']);
+    for (const typed of ['Ivory Coast', "Cote d'Ivoire", 'Burma', 'Myanmar']) {
+      const matched = await Promise.all(
+        flags.session.questions.map((question: HashedQuestion) =>
+          matchesAcceptedAnswer(flags.session.answerSalt, question.answerHashes ?? [], typed),
+        ),
+      );
+      assert.ok(matched.some(Boolean), `"${typed}" should auto-accept for its country`);
+    }
+  });
+
+  it('never auto-accepts a typo, a wrong answer or an empty box', async () => {
+    const { session } = await sessionOver('capitals-c2cap-type', ['Australia']);
+    const salt: string = session.answerSalt;
+    const hashes: string[] = session.questions[0].answerHashes;
+
+    // The acceptance criterion: a near miss is indistinguishable from a wrong
+    // answer to a hash, so the player is never marked wrong mid-word. Enter
+    // still accepts "Canbera" through the server's fuzzy pass.
+    for (const typed of ['Canbera', 'Canberr', 'Canberraa', 'Sydney', 'Paris', '', '   ', '-']) {
+      assert.equal(
+        await matchesAcceptedAnswer(salt, hashes, typed),
+        false,
+        `"${typed}" must not auto-accept for Australia`,
+      );
+    }
+  });
+
+  it('never auto-accepts what the matcher would reject (#35)', async () => {
+    // Auto-accepting something the server then marks wrong is worse than no
+    // auto-accept at all, so the hashed set is exactly the accepted set: the
+    // domain's aliases, never a search-only alias and never the other domain's.
+    const capitals = await sessionOver('capitals-c2cap-type', [
+      'Turkey',
+      'Australia',
+      'Netherlands',
+    ]);
+    for (const typed of ['Istanbul', 'Oz', 'Holland']) {
+      for (const question of capitals.session.questions as HashedQuestion[]) {
+        assert.equal(
+          await matchesAcceptedAnswer(
+            capitals.session.answerSalt,
+            question.answerHashes ?? [],
+            typed,
+          ),
+          false,
+          `"${typed}" must not auto-accept for a capital question`,
+        );
+      }
+    }
+
+    const flags = await sessionOver('flags-flag2c-type', ['Netherlands', 'South Africa']);
+    for (const typed of ['The Hague', 'Cape Town']) {
+      for (const question of flags.session.questions as HashedQuestion[]) {
+        assert.equal(
+          await matchesAcceptedAnswer(flags.session.answerSalt, question.answerHashes ?? [], typed),
+          false,
+          `"${typed}" must not auto-accept for a country question`,
+        );
+      }
+    }
+  });
+
+  /**
+   * The invariant behind all of the above, over the whole table rather than a
+   * handful of examples: one hash per distinct normalised spelling the matcher
+   * accepts, and not one more. A count that is right stops a future alias column
+   * being hashed by accident — which no example test would notice.
+   */
+  for (const [quizTypeKey, domain] of [
+    ['capitals-c2cap-type', 'capital'],
+    ['flags-flag2c-type', 'country'],
+  ] as const) {
+    it(`hashes every accepted ${domain} spelling for all 195, and nothing else`, async () => {
+      const all = await prisma.country.findMany({ orderBy: { id: 'asc' } });
+      const session = await startSessionWith(
+        quizTypeKey,
+        all.map((country) => country.id),
+      );
+      const salt: string = session.answerSalt;
+      const byId = new Map(all.map((country) => [country.id, country]));
+
+      for (const question of session.questions as HashedQuestion[]) {
+        const country = byId.get(question.countryId);
+        assert.ok(country, `question ${question.sequence} names an unknown country`);
+        const accepted =
+          domain === 'capital'
+            ? [country.capital, ...country.capitalAliases]
+            : [country.name, ...country.nameAliases];
+
+        for (const form of accepted) {
+          assert.equal(
+            await matchesAcceptedAnswer(salt, question.answerHashes ?? [], form),
+            true,
+            `"${form}" is accepted by the api but not hashed for ${country.name}`,
+          );
+        }
+        const distinct = new Set(accepted.map(normalizeAnswer).filter((v) => v.length > 0));
+        assert.equal(
+          question.answerHashes?.length,
+          distinct.size,
+          `${country.name} carries hashes for something other than its ${domain} answers`,
+        );
+      }
+    });
+  }
+
+  /**
+   * Every type-in format, over the whole table: the answer is not in the payload
+   * in any spelling the player could read off.
+   *
+   * Two fields are the question rather than the answer, and are excluded
+   * deliberately rather than quietly: `promptText` is what the player is shown
+   * (a country, a capital, a clue), and `promptIsoCode` is the flag to draw,
+   * which a flag question cannot ask without. Both are asserted to be exactly
+   * what the question needs, so the exclusion cannot hide a leak — and the clue
+   * is checked against the answer separately, since a clue that named its own
+   * country would give the game away with or without this feature.
+   */
+  for (const [quizTypeKey, domain] of [
+    ['capitals-c2cap-type', 'capital'],
+    ['capitals-cap2c-type', 'country'],
+    ['flags-flag2c-type', 'country'],
+    ['trivia-fact2c-type', 'country'],
+  ] as const) {
+    it(`sends no ${domain} answer text in ${quizTypeKey}`, async () => {
+      const all = await prisma.country.findMany({ orderBy: { id: 'asc' } });
+      const byId = new Map(all.map((country) => [country.id, country]));
+      const session = await startSessionWith(
+        quizTypeKey,
+        all.map((country) => country.id),
+      );
+
+      for (const question of session.questions as HashedQuestion[] & { promptIsoCode?: string }[]) {
+        const country = byId.get(question.countryId);
+        assert.ok(country);
+        const accepted =
+          domain === 'capital'
+            ? [country.capital, ...country.capitalAliases]
+            : [country.name, ...country.nameAliases];
+
+        if (quizTypeKey === 'flags-flag2c-type') {
+          assert.equal(question.promptIsoCode, country.isoCode);
+          assert.equal(question.promptText, '');
+        } else if (quizTypeKey === 'trivia-fact2c-type') {
+          assert.equal(question.promptIsoCode, undefined);
+          // The house rule for a clue, which is also what makes excluding
+          // promptText below safe.
+          assert.ok(
+            !question.promptText.toLowerCase().includes(country.name.toLowerCase()),
+            `the clue for ${country.name} names its own answer`,
+          );
+        } else {
+          assert.equal(question.promptIsoCode, undefined);
+          assert.equal(
+            question.promptText,
+            domain === 'capital' ? country.name : country.capital,
+          );
+        }
+
+        const wire = JSON.stringify({
+          ...question,
+          promptText: undefined,
+          promptIsoCode: undefined,
+        }).toLowerCase();
+        for (const form of accepted) {
+          assert.ok(
+            !wire.includes(form.toLowerCase()),
+            `the ${quizTypeKey} question for ${country.name} leaks "${form}"`,
+          );
+        }
+      }
+    });
+  }
+
+  it('hashes a guest round exactly as it hashes a signed-in one', async () => {
+    // Guests go through the same code path, which is the whole reason there is
+    // one — but they are the players most likely to be on a type-in round, so
+    // the payload is worth asserting rather than assuming.
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { quizTypeKey: 'trivia-fact2c-type', questionCount: 10 },
+    });
+    const session = response.json();
+    assert.equal(session.isGuest, true);
+    assert.ok(session.answerSalt, 'a guest type-in round needs a salt too');
+
+    for (const question of session.questions as HashedQuestion[]) {
+      const country = await prisma.country.findUniqueOrThrow({
+        where: { id: question.countryId },
+      });
+      assert.equal(
+        await matchesAcceptedAnswer(session.answerSalt, question.answerHashes ?? [], country.name),
+        true,
+        `a guest cannot auto-accept ${country.name}`,
+      );
+    }
+  });
+
+  it('salts every question set separately', async () => {
+    const first = await sessionOver('capitals-c2cap-type', ['Japan']);
+    const second = await sessionOver('capitals-c2cap-type', ['Japan']);
+
+    assert.notEqual(first.session.answerSalt, second.session.answerSalt);
+    assert.notDeepEqual(
+      first.session.questions[0].answerHashes,
+      second.session.questions[0].answerHashes,
+      'the same answer under two salts must not hash alike',
+    );
+    // Each payload still recognises its own answer, which is all a salt has to
+    // make true — there is nothing to match across two responses.
+    for (const { session } of [first, second]) {
+      assert.equal(
+        await matchesAcceptedAnswer(session.answerSalt, session.questions[0].answerHashes, 'Tokyo'),
+        true,
+      );
+    }
+  });
+
+  it('leaves multiple choice and recall alone', async () => {
+    for (const quizTypeKey of ['capitals-c2cap-mc', 'flags-flag2c-mc', 'trivia-fact2c-mc']) {
+      const session = await startSession(quizTypeKey, { questionCount: 3 });
+      assert.equal(session.answerSalt, undefined, `${quizTypeKey} needs no salt`);
+      for (const question of session.questions as HashedQuestion[]) {
+        // The options already carry the answer in plain text; they have to, to
+        // be tappable. Hashes would say nothing new.
+        assert.equal(question.answerHashes, undefined);
+        assert.equal(question.options?.length, 4);
+      }
+    }
+
+    const recall = await app.inject({
+      method: 'POST',
+      url: '/api/recall',
+      headers: userHeaders(),
+      payload: { region: 'Oceania' },
+    });
+    assert.equal(recall.statusCode, 201, recall.body);
+    assert.equal(recall.json().answerSalt, undefined);
   });
 });
 

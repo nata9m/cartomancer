@@ -354,6 +354,33 @@ Two guards make that safe, because the threshold alone is not enough —
 a set of probe guesses (and asserts that the SQL and TypeScript normalisers
 agree on all 528 seeded strings), which is how to re-tune the threshold.
 
+**Type-in auto-accept.** A correct answer on a type-in question is accepted the
+moment it is typed — no Enter, no *Check answer* — which saves a tap per
+question on a phone. Only an **exact** match does this: "Canbera" is left alone
+and still needs Enter, where the fuzzy pass forgives it, so a player is never
+marked wrong half-way through a word. "I don't know" is unchanged.
+
+The browser has to recognise the answer without being given it. Each type-in
+question therefore carries `answerHashes` — `sha256(salt + ':' +
+normalizeAnswer(form))` for the canonical answer and each accepted alias — plus
+a per-payload `answerSalt`; the quiz screen hashes what was typed, 150 ms after
+the last keystroke, and compares. No request per keystroke, and the matcher's
+normaliser is the shared one, so "exactly right" means the same on both sides.
+The hashed set is exactly what the api accepts (`acceptedAnswerForms`,
+`apps/api/src/lib/quiz.ts`): the domain's aliases, never the other domain's and
+never a `search_alias`, because auto-accepting an answer the server then marks
+wrong would be worse than no auto-accept at all.
+
+This is a **deterrent, not a security boundary**, and the alternative (a
+debounced `/peek` endpoint) was turned down for the request-per-pause it costs on
+a mobile connection (#58). Anyone with DevTools can hash the 195 capitals against
+the salt and find the match, and the number of hashes hints at how many spellings
+are accepted — which is no harder than looking the answer up, in a game with no
+leaderboards. What it does buy is that the answer is not sitting in the page
+source. Nothing is *decided* in the browser: a local match submits through the
+ordinary answer path and the **server still matches, scores and owns streaks and
+`is_learned`**, exactly as it does for a typed Enter.
+
 **"I don't know"** on a type-in question submits an empty answer, so it is
 scored and recorded exactly like a wrong guess — streak reset, country on the
 missed list — while revealing the correct answer. Giving up teaches something

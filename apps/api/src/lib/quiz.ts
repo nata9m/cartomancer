@@ -9,6 +9,7 @@ import {
   type QuizTypeSummary,
   type Region,
   type RegionFilter,
+  hashAnswer,
   quizTypeByKey,
 } from '@cartomancer/shared';
 import type { Country, PrismaClient, QuizType } from '@cartomancer/db';
@@ -65,6 +66,44 @@ export function answerDomainFor(definition: QuizTypeDefinition): AnswerDomain {
 /** The canonical expected answer, used for the reveal row and the missed list. */
 export function expectedAnswerFor(definition: QuizTypeDefinition, country: Country): string {
   return answerDomainFor(definition) === 'capital' ? country.capital : country.name;
+}
+
+/**
+ * Every spelling an exact match would accept for this question: the canonical
+ * answer plus the hand-seeded aliases *for that domain* (#35) — a capital
+ * question reads `capitalAliases`, a country question `nameAliases`.
+ *
+ * `searchAliases` are deliberately absent. The matcher never accepts them
+ * ("Cape Town" is not the name of a country), so hashing one would have the
+ * browser auto-accept an answer the server then marks wrong — a worse bug than
+ * the missing convenience, and the kind that is only ever found by a player.
+ * This is the one list to extend if the accepted set ever grows: it has to say
+ * exactly what `rankCandidates` says, or "exactly right" means two things.
+ */
+export function acceptedAnswerForms(
+  definition: QuizTypeDefinition,
+  country: Country,
+): string[] {
+  return answerDomainFor(definition) === 'capital'
+    ? [country.capital, ...country.capitalAliases]
+    : [country.name, ...country.nameAliases];
+}
+
+/**
+ * The salted hashes a type-in question carries so the browser can recognise a
+ * correct answer without holding it (#69). Deduplicated, because two spellings
+ * that normalise alike ("Kyiv"/"kyiv") are one hash and listing it twice would
+ * only overstate how many answers are accepted.
+ */
+async function answerHashesFor(
+  definition: QuizTypeDefinition,
+  country: Country,
+  salt: string,
+): Promise<string[]> {
+  const hashes = await Promise.all(
+    acceptedAnswerForms(definition, country).map((form) => hashAnswer(salt, form)),
+  );
+  return [...new Set(hashes.filter((hash): hash is string => hash !== null))];
 }
 
 export interface SelectionFilters {
@@ -283,28 +322,46 @@ interface QuestionBuildInput {
   factsByCountryId: Map<number, string>;
   /** country id → fact database id, for trivia rotation tracking. */
   factIdsByCountryId?: Map<number, number>;
+  /**
+   * The payload's answer salt, for type-in auto-accept (#69). Omitted for every
+   * other format, and omitting it for a type-in round simply leaves the hashes
+   * off — auto-accept is then unavailable and nothing else changes.
+   */
+  answerSalt?: string;
 }
 
-export function buildQuestions(input: QuestionBuildInput): QuizQuestion[] {
-  const { definition, countries, distractorPool, factsByCountryId, factIdsByCountryId } = input;
+export async function buildQuestions(input: QuestionBuildInput): Promise<QuizQuestion[]> {
+  const {
+    definition,
+    countries,
+    distractorPool,
+    factsByCountryId,
+    factIdsByCountryId,
+    answerSalt,
+  } = input;
 
-  return countries.map((country, index) => {
-    const question: QuizQuestion = {
-      sequence: index + 1,
-      countryId: country.id,
-      ...promptFor(definition, country, factsByCountryId),
-    };
-    if (factIdsByCountryId) {
-      const fid = factIdsByCountryId.get(country.id);
-      if (fid !== undefined) {
-        question.factId = fid;
+  return Promise.all(
+    countries.map(async (country, index) => {
+      const question: QuizQuestion = {
+        sequence: index + 1,
+        countryId: country.id,
+        ...promptFor(definition, country, factsByCountryId),
+      };
+      if (factIdsByCountryId) {
+        const fid = factIdsByCountryId.get(country.id);
+        if (fid !== undefined) {
+          question.factId = fid;
+        }
       }
-    }
-    if (definition.format === 'multiple_choice') {
-      question.options = buildOptions(definition, country, distractorPool);
-    }
-    return question;
-  });
+      if (definition.format === 'multiple_choice') {
+        question.options = buildOptions(definition, country, distractorPool);
+      }
+      if (definition.format === 'type_in' && answerSalt) {
+        question.answerHashes = await answerHashesFor(definition, country, answerSalt);
+      }
+      return question;
+    }),
+  );
 }
 
 /**
