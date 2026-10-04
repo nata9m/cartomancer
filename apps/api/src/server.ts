@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { type RequestActor, resolveActor } from './auth.js';
 import type { Env } from './env.js';
 import { HttpError } from './errors.js';
+import { isUniqueViolation } from './lib/db.js';
 import { registerCatalogRoutes } from './routes/catalog.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerProgressRoutes } from './routes/progress.js';
@@ -77,6 +78,13 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
         error: 'bad_request',
         message: error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '),
       });
+    }
+    // A unique constraint is the database saying "that is already there", which
+    // is a conflict with what exists, not a fault in the server (#54). The routes
+    // that can race on one handle it themselves and answer with what was
+    // recorded; this is the net for any that do not, so it never reads as a 500.
+    if (isUniqueViolation(error)) {
+      return reply.code(409).send({ error: 'conflict', message: 'That was already recorded' });
     }
     request.log.error({ err: error }, 'unhandled error');
     const candidate = error as { statusCode?: unknown; message?: unknown };

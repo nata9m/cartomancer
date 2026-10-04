@@ -14,6 +14,8 @@ import type { Country, PrismaClient } from '@cartomancer/db';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { badRequest, forbidden, notFound } from '../errors.js';
+import { type Db, isUniqueViolation, lockParticipant } from '../lib/db.js';
+import { loadAllCountries } from '../lib/countries.js';
 import { checkAnswer } from '../lib/matching.js';
 import { requestTimeZone } from '../timezone.js';
 import { loadSummary, newlyLearnedInSession, recordProgress } from '../lib/progress.js';
@@ -144,7 +146,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     }
 
     const countries = await loadCountriesInOrder(app.prisma, countryIds);
-    const distractorPool = await app.prisma.country.findMany();
+    const distractorPool = await loadAllCountries(app.prisma);
     const answerSalt = answerSaltFor(definition);
     const questions = await buildQuestions({
       definition,
@@ -217,7 +219,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       app.prisma,
       session.questions.map((q) => q.countryId),
     );
-    const distractorPool = await app.prisma.country.findMany();
+    const distractorPool = await loadAllCountries(app.prisma);
 
     let factsByCountryId: Map<number, string>;
     let factIdsByCountryId: Map<number, number> | undefined;
@@ -302,46 +304,25 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     // again. So a repeat returns what was recorded, writes nothing, and scores
     // nothing twice: the row, the streak and the day's activity all stay as the
     // first call left them.
-    const already = await app.prisma.sessionAnswer.findUnique({
-      where: {
-        sessionId_userId_countryId: { sessionId: session.id, userId, countryId: country.id },
-      },
-    });
-    if (already) {
-      // The first call may have died after writing the answer and before the
-      // clue's rotation row (none of this is one transaction). Without this a
-      // retry would replay "answered" and the clue would stay unmet for good, to
-      // come straight back in the next round (#70). `ensure` rather than record:
-      // an old session's replay must not drag a clue's last-seen time backwards.
-      if (definition.category === 'trivia' && question.factId) {
-        await ensureFactProgress(app.prisma, userId, question.factId, already.answeredAt);
-      }
-      const recorded = await app.prisma.progress.findUnique({
+    const findRecorded = () =>
+      app.prisma.sessionAnswer.findUnique({
         where: {
-          userId_countryId_quizTypeId: {
-            userId,
-            countryId: country.id,
-            quizTypeId: session.quizTypeId,
-          },
+          sessionId_userId_countryId: { sessionId: session.id, userId, countryId: country.id },
         },
       });
-      const replay: AnswerResult = {
-        wasCorrect: already.wasCorrect,
-        correctAnswer: expectedAnswerFor(definition, country),
-        correctCountryId: country.id,
-        correctCountryName: country.name,
-        correctIsoCode: country.isoCode,
-        // Not re-matched: the stored row knows whether the answer was right,
-        // not how it got there, and guessing between exact and alias would be
-        // telemetry that says something the server never checked.
-        matchedBy: 'replay',
-        currentStreak: recorded?.currentStreak ?? 0,
-        isLearned: recorded?.isLearned ?? false,
-        // The crossing happened on the first call. This one reports state, not
-        // a transition, so the "now learned" line is not shown a second time.
-        newlyLearned: false,
-      };
-      return replay;
+    const replay = async (recorded: NonNullable<Awaited<ReturnType<typeof findRecorded>>>) =>
+      replayAnswer(app.prisma, {
+        recorded,
+        userId,
+        quizTypeId: session.quizTypeId,
+        definition,
+        country,
+        factId: question.factId,
+      });
+
+    const already = await findRecorded();
+    if (already) {
+      return replay(already);
     }
 
     const outcome = await checkAnswer(app.prisma, {
@@ -351,30 +332,59 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     });
     const answeredAt = new Date();
 
-    await app.prisma.sessionAnswer.create({
-      data: {
-        sessionId: session.id,
-        userId,
-        countryId: country.id,
-        wasCorrect: outcome.isMatch,
-        timeTakenMs: body.timeTakenMs ?? null,
-        answeredAt,
-      },
-    });
-    const progress = await recordProgress(app.prisma, {
-      userId,
-      quizTypeId: session.quizTypeId,
-      quizTypeKey: session.quizType.key,
-      countryId: country.id,
-      wasCorrect: outcome.isMatch,
-      answeredAt,
-    });
-
-    if (definition.category === 'trivia' && question.factId) {
-      await recordFactProgress(app.prisma, userId, question.factId, answeredAt);
+    // The four writes are one unit (#54). They used to be four statements, so a
+    // failure part-way left an answer with no streak behind it, or a streak with
+    // no answer, or a score that disagreed with `session_answers` — and nothing
+    // ever reconciled them. Now either all of it happened or none of it did,
+    // and a retry starts from a clean slate.
+    //
+    // The participant lock comes first (see `lockParticipant`): it is what makes
+    // a second submit of this question wait for the first rather than race it,
+    // and what keeps the recounted score right when different questions of the
+    // session are answered together.
+    let progress;
+    try {
+      progress = await app.prisma.$transaction(async (tx) => {
+        await lockParticipant(tx, session.id, userId);
+        await tx.sessionAnswer.create({
+          data: {
+            sessionId: session.id,
+            userId,
+            countryId: country.id,
+            wasCorrect: outcome.isMatch,
+            timeTakenMs: body.timeTakenMs ?? null,
+            answeredAt,
+          },
+        });
+        const update = await recordProgress(tx, {
+          userId,
+          quizTypeId: session.quizTypeId,
+          quizTypeKey: session.quizType.key,
+          countryId: country.id,
+          wasCorrect: outcome.isMatch,
+          answeredAt,
+        });
+        if (definition.category === 'trivia' && question.factId) {
+          await recordFactProgress(tx, userId, question.factId, answeredAt);
+        }
+        await syncParticipantScore(tx, session.id, userId);
+        return update;
+      });
+    } catch (error) {
+      // Lost the race to another submit of this same question: a double tap, or
+      // a client retry (#58) arriving while the original is still in flight. Both
+      // got past the check above; the primary key let one of them through. That
+      // is the same situation as a repeat that arrives later, so it gets the same
+      // answer — what the winner recorded — rather than a 500, or a 409 that
+      // would tell the player their answer failed when it was counted.
+      if (isUniqueViolation(error)) {
+        const recorded = await findRecorded();
+        if (recorded) {
+          return replay(recorded);
+        }
+      }
+      throw error;
     }
-
-    await syncParticipantScore(app.prisma, session.id, userId);
 
     const result: AnswerResult = {
       wasCorrect: outcome.isMatch,
@@ -501,9 +511,58 @@ async function loadCountriesInOrder(
     .filter((row): row is Country => row !== undefined);
 }
 
+/**
+ * What a repeated answer reports: what was recorded the first time, written
+ * nowhere and scored never. Shared by the plain repeat and by a concurrent
+ * submit that lost the race, which are the same thing arriving at different
+ * moments.
+ */
+async function replayAnswer(
+  db: Db,
+  input: {
+    recorded: { wasCorrect: boolean; answeredAt: Date };
+    userId: string;
+    quizTypeId: number;
+    definition: QuizTypeDefinition;
+    country: Country;
+    factId: number | null;
+  },
+): Promise<AnswerResult> {
+  const { recorded, userId, quizTypeId, definition, country, factId } = input;
+  // The first call may have died after writing the answer and before the clue's
+  // rotation row. Without this a retry would replay "answered" and the clue
+  // would stay unmet for good, to come straight back in the next round (#70).
+  // `ensure` rather than record: an old session's replay must not drag a clue's
+  // last-seen time backwards.
+  if (definition.category === 'trivia' && factId) {
+    await ensureFactProgress(db, userId, factId, recorded.answeredAt);
+  }
+  const progress = await db.progress.findUnique({
+    where: {
+      userId_countryId_quizTypeId: { userId, countryId: country.id, quizTypeId },
+    },
+  });
+  return {
+    wasCorrect: recorded.wasCorrect,
+    correctAnswer: expectedAnswerFor(definition, country),
+    correctCountryId: country.id,
+    correctCountryName: country.name,
+    correctIsoCode: country.isoCode,
+    // Not re-matched: the stored row knows whether the answer was right, not
+    // how it got there, and guessing between exact and alias would be telemetry
+    // that says something the server never checked.
+    matchedBy: 'replay',
+    currentStreak: progress?.currentStreak ?? 0,
+    isLearned: progress?.isLearned ?? false,
+    // The crossing happened on the first call. This one reports state, not a
+    // transition, so the "now learned" line is not shown a second time.
+    newlyLearned: false,
+  };
+}
+
 /** Keeps `session_participants.score` as the count of this user's correct answers. */
 async function syncParticipantScore(
-  prisma: PrismaClient,
+  prisma: Db,
   sessionId: string,
   userId: string,
 ): Promise<number> {
