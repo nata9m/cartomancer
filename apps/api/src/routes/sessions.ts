@@ -8,6 +8,7 @@ import {
   type QuizTypeDefinition,
   type SessionResults,
   createAnswerSalt,
+  qualityFromTime,
   quizTypeByKey,
 } from '@cartomancer/shared';
 import type { Country, PrismaClient } from '@cartomancer/db';
@@ -416,6 +417,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           countryId: country.id,
           wasCorrect: outcome.isMatch,
           hintUsed: body.hintUsed,
+          quality: qualityFromTime(definition.format, body.timeTakenMs),
           answeredAt,
         });
         if (definition.category === 'trivia' && question.factId) {
@@ -451,6 +453,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       currentStreak: progress.currentStreak,
       isLearned: progress.isLearned,
       newlyLearned: progress.newlyLearned,
+      nextReviewInDays: progress.dueInDays,
     };
     return result;
   });
@@ -679,7 +682,6 @@ async function buildResults(
   const newlyLearned = await newlyLearnedInSession(prisma, {
     userId,
     quizTypeId: session.quizTypeId,
-    quizTypeKey: session.quizType.key,
     countryIds: session.questions.map((question) => question.countryId),
     since: session.createdAt,
   });

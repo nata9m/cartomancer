@@ -1,4 +1,4 @@
-import { learnedThresholdForCategory } from '@cartomancer/shared';
+import { learnedIntervalDaysForCategory } from '@cartomancer/shared';
 import { describe, expect, it } from 'vitest';
 import { LEARNED_CATEGORIES, LEARNED_COPY, learnedHref, parseLearnedCategory } from './learned';
 
@@ -34,10 +34,10 @@ describe('LEARNED_COPY', () => {
     }
   });
 
-  it('quotes the threshold from the taxonomy, not a number written into the sentence', () => {
+  it('quotes the interval from the taxonomy, not a number written into the sentence', () => {
     for (const category of ['capitals', 'flags'] as const) {
-      const threshold = learnedThresholdForCategory(category);
-      expect(LEARNED_COPY[category].explanation).toContain(`${threshold} times in a row`);
+      const weeks = learnedIntervalDaysForCategory(category) / 7;
+      expect(LEARNED_COPY[category].explanation).toContain(`hold it for ${weeks} weeks`);
     }
   });
 });

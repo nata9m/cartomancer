@@ -969,10 +969,18 @@ describe('type-in feedback and hints (#53)', () => {
     assert.equal(hintedThird.isLearned, false);
     assert.equal(hintedThird.newlyLearned, false);
 
-    // An unhinted one does.
+    // An unhinted one is the third in a row. It does not learn the country yet:
+    // each hint cost some ease (#50), so the interval is 6 x 2.2 = 13.2 days, a
+    // little short of the 14 that counts as learned.
     const third = await play('Peru');
     assert.equal(third.currentStreak, 3);
-    assert.equal(third.newlyLearned, true);
+    assert.equal(third.isLearned, false);
+    assert.equal(third.newlyLearned, false);
+
+    // The next one does.
+    const fourth = await play('Peru');
+    assert.equal(fourth.currentStreak, 4);
+    assert.equal(fourth.newlyLearned, true);
 
     // A hint never softens a wrong answer.
     const wrong = await play('Chile', true);
@@ -1088,6 +1096,217 @@ describe('map mode (#52)', () => {
       const country = await prisma.country.findUniqueOrThrow({ where: { id: question.countryId } });
       assert.equal(country.region, 'Oceania');
     }
+  });
+});
+
+describe('spaced repetition (#50)', () => {
+  let srsUserId: string;
+  const SRS_EMAIL = 'api-srs@cartomancer.invalid';
+  const DAY = 86_400_000;
+
+  before(async () => {
+    await prisma.user.deleteMany({ where: { email: SRS_EMAIL } });
+    const user = await prisma.user.create({
+      data: { email: SRS_EMAIL, name: 'SRS', authProvider: 'google' },
+    });
+    srsUserId = user.id;
+  });
+
+  after(async () => {
+    await prisma.user.deleteMany({ where: { email: SRS_EMAIL } });
+  });
+
+  const headers = () => ({ 'x-cartomancer-user-id': srsUserId });
+  const quizTypeKey = 'flags-flag2c-type';
+
+  const sessionFor = async (countryIds: number[]) => {
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: quizTypeKey } });
+    const created = await prisma.quizSession.create({
+      data: {
+        quizTypeId: quizType.id,
+        questionCount: countryIds.length,
+        createdBy: srsUserId,
+        participants: { create: [{ userId: srsUserId }] },
+        questions: {
+          create: countryIds.map((countryId, index) => ({ sequence: index + 1, countryId })),
+        },
+      },
+    });
+    return created.id;
+  };
+
+  const play = async (countryId: number, value: string, timeTakenMs = 5000) => {
+    const sessionId = await sessionFor([countryId]);
+    const before = Date.now();
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sessionId}/answers`,
+      headers: headers(),
+      payload: { sequence: 1, answer: value, timeTakenMs },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    return { result: response.json(), before, sessionId };
+  };
+
+  const rowFor = async (countryId: number) => {
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: quizTypeKey } });
+    return prisma.progress.findUniqueOrThrow({
+      where: {
+        userId_countryId_quizTypeId: { userId: srsUserId, countryId, quizTypeId: quizType.id },
+      },
+    });
+  };
+
+  const country = (name: string) => prisma.country.findFirstOrThrow({ where: { name } });
+
+  it('stretches the interval 1, 6, then by the ease factor, and learns at two weeks', async () => {
+    const norway = await country('Norway');
+
+    const first = await play(norway.id, 'Norway');
+    assert.equal(first.result.nextReviewInDays, 1);
+    assert.equal(first.result.isLearned, false);
+    let row = await rowFor(norway.id);
+    assert.equal(row.intervalDays, 1);
+    assert.ok(row.dueAt, 'a due date is stored');
+    assert.ok(Math.abs(row.dueAt.getTime() - (row.lastAnsweredAt?.getTime() ?? 0) - DAY) < 1000);
+
+    const second = await play(norway.id, 'Norway');
+    assert.equal(second.result.nextReviewInDays, 6);
+    assert.equal(second.result.isLearned, false);
+
+    const third = await play(norway.id, 'Norway');
+    assert.equal(third.result.currentStreak, 3);
+    // 6 days x an ease that three quick answers have raised from 2.5.
+    assert.ok(third.result.nextReviewInDays >= 15, String(third.result.nextReviewInDays));
+    assert.equal(third.result.isLearned, true);
+    assert.equal(third.result.newlyLearned, true);
+    row = await rowFor(norway.id);
+    assert.equal(row.isLearned, true);
+    assert.ok(row.learnedAt, 'learned_at is stamped when it becomes learned');
+    const learnedAt = row.learnedAt;
+
+    // Another success keeps it learned, is not "newly" learned, and keeps learned_at.
+    const fourth = await play(norway.id, 'Norway');
+    assert.equal(fourth.result.isLearned, true);
+    assert.equal(fourth.result.newlyLearned, false);
+    assert.equal((await rowFor(norway.id)).learnedAt?.getTime(), learnedAt.getTime());
+  });
+
+  it('a miss brings it back at once and un-learns it', async () => {
+    const sweden = await country('Sweden');
+    for (let i = 0; i < 3; i += 1) await play(sweden.id, 'Sweden');
+    assert.equal((await rowFor(sweden.id)).isLearned, true);
+
+    const { result } = await play(sweden.id, 'Denmark');
+    assert.equal(result.wasCorrect, false);
+    assert.equal(result.currentStreak, 0);
+    assert.equal(result.isLearned, false);
+    assert.equal(result.nextReviewInDays, 0);
+    const row = await rowFor(sweden.id);
+    assert.equal(row.intervalDays, 0);
+    assert.equal(row.learnedAt, null, 'a lapse clears learned_at');
+    assert.ok(row.dueAt && row.dueAt.getTime() <= Date.now() + 1000, 'due straight away');
+  });
+
+  it('answer speed moves the ease: fast raises it, slow lowers it, never past the bounds', async () => {
+    const [fast, slow] = await Promise.all([country('Finland'), country('Iceland')]);
+    for (let i = 0; i < 6; i += 1) await play(fast.id, 'Finland', 800);
+    for (let i = 0; i < 6; i += 1) await play(slow.id, 'Iceland', 60_000);
+    const fastRow = await rowFor(fast.id);
+    const slowRow = await rowFor(slow.id);
+    assert.ok(fastRow.ease > 2.5 && fastRow.ease <= 3, String(fastRow.ease));
+    assert.ok(slowRow.ease < 2.5 && slowRow.ease >= 1.3, String(slowRow.ease));
+  });
+
+  it('typed answers are allowed more time before they count as slow', async () => {
+    const chad = await country('Chad');
+    await play(chad.id, 'Chad', 15_000);
+    // 15 s is slow for a tap but ordinary for typing a name: no ease change.
+    assert.equal((await rowFor(chad.id)).ease, 2.5);
+  });
+
+  it('asks for what is due first, then what is new, then what is not yet due', async () => {
+    const [due, fresh, later, overdue] = await Promise.all(
+      ['Peru', 'Chile', 'Bolivia', 'Ecuador'].map(country),
+    );
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: quizTypeKey } });
+    const seed = (countryId: number, dueAt: Date) =>
+      prisma.progress.create({
+        data: {
+          userId: srsUserId,
+          countryId,
+          quizTypeId: quizType.id,
+          currentStreak: 1,
+          intervalDays: 1,
+          dueAt,
+          lastAnsweredAt: new Date(Date.now() - 2 * DAY),
+        },
+      });
+    await seed((later as { id: number }).id, new Date(Date.now() + 10 * DAY));
+    await seed((due as { id: number }).id, new Date(Date.now() - 1 * DAY));
+    await seed((overdue as { id: number }).id, new Date(Date.now() - 20 * DAY));
+
+    // Every other South American country is "new", so the round is exactly the
+    // ones with a schedule plus new ones, in that order.
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      headers: headers(),
+      payload: { quizTypeKey, region: 'Americas', questionCount: 195 },
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    const ids: number[] = response.json().questions.map((q: { countryId: number }) => q.countryId);
+    const at = (id: number) => ids.indexOf(id);
+    assert.ok(at((overdue as { id: number }).id) === 0, 'the most overdue is first');
+    assert.ok(at((due as { id: number }).id) === 1, 'then the next due');
+    assert.ok(at((fresh as { id: number }).id) > 1, 'new countries follow what is due');
+    assert.ok(
+      at((later as { id: number }).id) > at((fresh as { id: number }).id),
+      'what is not yet due comes last',
+    );
+    assert.equal(ids[ids.length - 1], (later as { id: number }).id);
+  });
+
+  it('reports a newly learned country on the results, once', async () => {
+    const mali = await country('Mali');
+    let last;
+    for (let i = 0; i < 3; i += 1) last = await play(mali.id, 'Mali');
+    const finished = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${last?.sessionId}/finish`,
+      headers: headers(),
+      payload: {},
+    });
+    assert.equal(finished.statusCode, 200, finished.body);
+    assert.deepEqual(
+      finished.json().newlyLearned.map((c: { countryName: string }) => c.countryName),
+      ['Mali'],
+    );
+    const again = await play(mali.id, 'Mali');
+    const results = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${again.sessionId}/finish`,
+      headers: headers(),
+      payload: {},
+    });
+    assert.deepEqual(results.json().newlyLearned, []);
+  });
+
+  it('counts both of two answers to the same country sent at once', async () => {
+    const togo = await country('Togo');
+    const [a, b] = await Promise.all([sessionFor([togo.id]), sessionFor([togo.id])]);
+    const send = (sessionId: string) =>
+      app.inject({
+        method: 'POST',
+        url: `/api/sessions/${sessionId}/answers`,
+        headers: headers(),
+        payload: { sequence: 1, answer: 'Togo', timeTakenMs: 5000 },
+      });
+    const responses = await Promise.all([send(a), send(b)]);
+    for (const response of responses) assert.equal(response.statusCode, 200, response.body);
+    const row = await rowFor(togo.id);
+    assert.equal(row.currentStreak, 2, 'neither answer was lost');
+    assert.equal(row.intervalDays, 6);
   });
 });
 
