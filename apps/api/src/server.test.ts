@@ -989,6 +989,165 @@ describe('type-in feedback and hints (#53)', () => {
   });
 });
 
+describe('review rounds (#51)', () => {
+  let reviewUserId: string;
+  const REVIEW_EMAIL = 'api-review@cartomancer.invalid';
+
+  before(async () => {
+    await prisma.user.deleteMany({ where: { email: REVIEW_EMAIL } });
+    const user = await prisma.user.create({
+      data: { email: REVIEW_EMAIL, name: 'Review', authProvider: 'google' },
+    });
+    reviewUserId = user.id;
+  });
+
+  after(async () => {
+    await prisma.user.deleteMany({ where: { email: REVIEW_EMAIL } });
+  });
+
+  const asReviewer = { 'x-cartomancer-user-id': '' };
+  const headers = () => ({ ...asReviewer, 'x-cartomancer-user-id': reviewUserId });
+
+  const start = (payload: Record<string, unknown>, guest = false) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      headers: guest ? {} : headers(),
+      payload,
+    });
+
+  const play = async (sessionId: string, sequence: number, value: string) => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sessionId}/answers`,
+      headers: headers(),
+      payload: { sequence, answer: value },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    return response.json();
+  };
+
+  const ids = async (...names: string[]) =>
+    (
+      await Promise.all(names.map((name) => prisma.country.findFirstOrThrow({ where: { name } })))
+    ).map((country) => country.id);
+
+  it('starts a round over exactly the countries asked for, ignoring the filters', async () => {
+    const wanted = await ids('Japan', 'Brazil', 'Kenya');
+    const response = await start({
+      quizTypeKey: 'capitals-c2cap-mc',
+      region: 'Europe',
+      difficulty: 'Hard',
+      countryIds: wanted,
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    const session = response.json();
+    assert.deepEqual(
+      session.questions.map((question: { countryId: number }) => question.countryId).sort(),
+      [...wanted].sort(),
+    );
+    assert.equal(session.questionCount, 3);
+    assert.deepEqual(
+      session.questions.map((question: { sequence: number }) => question.sequence),
+      [1, 2, 3],
+    );
+  });
+
+  it('works for a guest too, writing nothing', async () => {
+    const wanted = await ids('Japan', 'Brazil');
+    const before = await prisma.quizSession.count();
+    const response = await start({ quizTypeKey: 'flags-flag2c-type', countryIds: wanted }, true);
+    assert.equal(response.statusCode, 201, response.body);
+    const session = response.json();
+    assert.equal(session.isGuest, true);
+    assert.equal(session.questions.length, 2);
+    assert.equal(await prisma.quizSession.count(), before);
+  });
+
+  it('asks a trivia round about the clue for each country', async () => {
+    const withFacts = await prisma.countryFact.findMany({ take: 3, select: { countryId: true } });
+    const wanted = [...new Set(withFacts.map((fact) => fact.countryId))];
+    const response = await start({ quizTypeKey: 'trivia-fact2c-mc', countryIds: wanted });
+    assert.equal(response.statusCode, 201, response.body);
+    const session = response.json();
+    assert.equal(session.questions.length, wanted.length);
+    for (const question of session.questions) {
+      assert.ok(question.promptText.length > 0);
+      assert.ok(question.factId !== undefined);
+    }
+  });
+
+  it('refuses ids that are not countries, an empty list, and more than there are', async () => {
+    const unknown = await start({ quizTypeKey: 'capitals-c2cap-mc', countryIds: [999999] });
+    assert.equal(unknown.statusCode, 400);
+    const empty = await start({ quizTypeKey: 'capitals-c2cap-mc', countryIds: [] });
+    assert.equal(empty.statusCode, 400);
+    const tooMany = await start({
+      quizTypeKey: 'capitals-c2cap-mc',
+      countryIds: Array.from({ length: 196 }, (_, index) => index + 1),
+    });
+    assert.equal(tooMany.statusCode, 400);
+  });
+
+  it('counts a repeated id once', async () => {
+    const [japan] = await ids('Japan');
+    const response = await start({
+      quizTypeKey: 'capitals-c2cap-mc',
+      countryIds: [japan, japan],
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    assert.equal(response.json().questions.length, 1);
+  });
+
+  it('summarises what needs review: missed, most recent first, and gone once answered right', async () => {
+    const summary = () => loadSummary(prisma, reviewUserId);
+    assert.equal((await summary()).review, null, 'nothing answered yet');
+
+    const [japan, brazil, kenya] = await ids('Japan', 'Brazil', 'Kenya');
+    const quizTypeKey = 'capitals-c2cap-type';
+    const session = (await start({ quizTypeKey, countryIds: [japan, brazil, kenya] })).json();
+    const order: number[] = session.questions.map(
+      (question: { countryId: number }) => question.countryId,
+    );
+    const answers = new Map<number, string>([
+      [japan as number, 'Tokyo'],
+      [brazil as number, 'Brasília'],
+      [kenya as number, 'Nairobi'],
+    ]);
+    // Miss two of the three; get one right.
+    const right = order[0] as number;
+    for (const [position, countryId] of order.entries()) {
+      await play(
+        session.id,
+        position + 1,
+        countryId === right ? (answers.get(countryId) as string) : 'nope',
+      );
+    }
+
+    const review = (await summary()).review;
+    assert.ok(review);
+    assert.equal(review.quizTypeKey, quizTypeKey);
+    assert.equal(review.count, 2);
+    assert.deepEqual([...review.countryIds].sort(), order.filter((id) => id !== right).sort());
+    assert.equal(review.countryIds.includes(right), false, 'a correct answer needs no review');
+    assert.equal(review.quizTypeName.length > 0, true);
+
+    // Answering one of them correctly takes it off the list.
+    const again = (await start({ quizTypeKey, countryIds: review.countryIds })).json();
+    const first = again.questions[0] as { countryId: number };
+    await play(again.id, 1, answers.get(first.countryId) as string);
+    const after = (await summary()).review;
+    assert.equal(after?.count, 1);
+    assert.equal(after?.countryIds.includes(first.countryId), false);
+  });
+
+  it('is served by the summary endpoint', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/summary', headers: headers() });
+    assert.equal(response.statusCode, 200);
+    assert.ok('review' in response.json().summary);
+  });
+});
+
 describe('signed-in quiz session', () => {
   it('records answers, streaks and learned state, and rotates questions', async () => {
     const quizTypeKey = 'capitals-c2cap-type';

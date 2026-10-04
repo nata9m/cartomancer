@@ -237,3 +237,41 @@ test('type-in hints and a wrong-country notice (#53)', async ({ page, request })
     `${other?.capital} is the capital of ${other?.name} — the answer was ${second}`,
   );
 });
+
+test('a guest can practise exactly the countries they missed (#51)', async ({ page }) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Capitals/ }).click();
+  await page.getByRole('button', { name: /Type the capital city of the country shown/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+
+  const counter = page.locator('.progress-counter');
+  const total = Number((await counter.innerText()).split('/')[1]);
+
+  // Give up on every question, so the missed list is the whole round and the
+  // drill has a known size.
+  for (let question = 1; question <= total; question += 1) {
+    await page.getByRole('button', { name: /don.t know/i }).click();
+    await page.getByRole('button', { name: question === total ? 'See results' : 'Next' }).click();
+  }
+
+  await page.waitForURL(/\/results/);
+  const missed = await page.locator('.missed-row').count();
+  expect(missed).toBe(total);
+  const missedPrompts = await page.locator('.missed-row').allInnerTexts();
+
+  await page.getByRole('button', { name: new RegExp(`Practise these ${total} again`) }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+  await expect(counter).toHaveText(`1/${total}`);
+
+  // The drill asks about the missed countries and nothing else.
+  const asked = new Set<string>();
+  for (let question = 1; question <= total; question += 1) {
+    asked.add((await page.locator('.prompt-text').innerText()).trim());
+    await page.getByRole('button', { name: /don.t know/i }).click();
+    await page.getByRole('button', { name: question === total ? 'See results' : 'Next' }).click();
+  }
+  expect(asked.size).toBe(total);
+  for (const prompt of missedPrompts) {
+    expect(prompt).toContain([...asked].find((name) => prompt.includes(name)) ?? '\u0000');
+  }
+});

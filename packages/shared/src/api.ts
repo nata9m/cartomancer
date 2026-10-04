@@ -236,6 +236,23 @@ export interface ProgressSummary {
     flags: number;
   };
   totalCountries: number;
+  /** Countries whose last answer was missed, ready to drill (#51); null when there are none. */
+  review: ReviewSummary | null;
+}
+
+/**
+ * What a "needs review" round would be. Progress is per quiz type, so a review
+ * round is too: this is the quiz type with the most countries to review (the
+ * most recently missed one on a tie), and `countryIds` are up to a round's worth
+ * of them, most recently missed first.
+ */
+export interface ReviewSummary {
+  /** How many countries need review in `quizTypeKey`, which can exceed `countryIds`. */
+  count: number;
+  quizTypeKey: string;
+  quizTypeName: string;
+  directionLabel: string;
+  countryIds: number[];
 }
 
 /**

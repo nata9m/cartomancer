@@ -26,6 +26,7 @@ import {
   expectedAnswerFor,
   loadFacts,
   loadFactsByIds,
+  shuffle,
   parseDifficulty,
   parseRegion,
   promptFor,
@@ -42,6 +43,13 @@ const startSessionSchema = z.object({
   region: z.string().optional(),
   difficulty: z.string().optional(),
   questionCount: z.union([z.number(), z.string()]).optional(),
+  /**
+   * An explicit set of countries to ask about, in place of the usual selection
+   * (#51): the ones just missed, or the ones that need review. Region and
+   * difficulty are then ignored — they describe how to choose, and nothing is
+   * being chosen. Capped at the number of countries there are.
+   */
+  countryIds: z.array(z.coerce.number().int().positive()).min(1).max(195).optional(),
   /**
    * Guest rotation (#70): clue id → epoch ms it was last answered, one list per
    * browser. Ignored for signed-in play, where fact_progress is the memory. The
@@ -135,7 +143,33 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     let factsByCountryId: Map<number, string>;
     let factIdsByCountryId: Map<number, number> | undefined;
 
-    if (definition.category === 'trivia') {
+    if (body.countryIds) {
+      const requested = [...new Set(body.countryIds)];
+      const known = await app.prisma.country.findMany({
+        where: { id: { in: requested } },
+        select: { id: true },
+      });
+      if (known.length !== requested.length) {
+        throw badRequest('countryIds names a country that does not exist');
+      }
+      countryIds = requested;
+      factsByCountryId = new Map();
+      if (definition.category === 'trivia') {
+        // Only countries with a clue can be asked about; a missed trivia
+        // question had one, so this drops nothing it came from.
+        const loaded = await loadFacts(app.prisma, requested);
+        factsByCountryId = loaded.factsByCountryId;
+        factIdsByCountryId = loaded.factIdsByCountryId;
+        countryIds = requested.filter((id) => factsByCountryId.has(id));
+        if (countryIds.length === 0) {
+          throw badRequest('None of those countries has a trivia clue');
+        }
+      }
+      // The order they were asked for is the order they were missed in, which
+      // is the order they were asked in the first place: a drill that repeats
+      // the sequence invites answering from position rather than from memory.
+      countryIds = shuffle(countryIds);
+    } else if (definition.category === 'trivia') {
       const selectedFacts = await selectFacts(app.prisma, {
         userId,
         filters,

@@ -23,4 +23,5 @@ export {
   IconUser, // ti-user
   IconTrash, // ti-trash
   IconSparkles, // ti-sparkles
+  IconRefresh, // ti-refresh
 } from '@tabler/icons-react';

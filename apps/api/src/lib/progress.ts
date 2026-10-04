@@ -5,6 +5,8 @@ import {
   type CountryProgress,
   type ProgressSummary,
   type QuizCategory,
+  type ReviewSummary,
+  quizTypeByKey,
 } from '@cartomancer/shared';
 import type { PrismaClient } from '@cartomancer/db';
 import type { Db } from './db.js';
@@ -188,6 +190,71 @@ export async function loadSummary(
       flags: learnedByCategory.get('flags') ?? 0,
     },
     totalCountries: TOTAL_COUNTRIES,
+    review: await loadReview(prisma, userId),
+  };
+}
+
+/** The most countries one review round asks about, the same as a normal round (#51). */
+export const REVIEW_ROUND_SIZE = 20;
+
+/**
+ * Countries that need another go: asked at least once, and the last answer left
+ * the streak at zero. A country never asked has no row and does not appear —
+ * "review" is for what was seen and missed, not for what has not been met yet.
+ *
+ * Progress is per quiz type, and a round is of one quiz type, so this picks one:
+ * the type with the most countries to review, the most recently missed on a tie.
+ * Recall is left out; its rows are a different kind of thing and have no
+ * question to ask again.
+ */
+export async function loadReview(
+  prisma: PrismaClient,
+  userId: string,
+): Promise<ReviewSummary | null> {
+  const rows = await prisma.$queryRawUnsafe<
+    { key: string; country_id: number; last_answered_at: Date }[]
+  >(
+    `SELECT q.key, p.country_id, p.last_answered_at
+       FROM progress p
+       JOIN quiz_types q ON q.id = p.quiz_type_id
+      WHERE p.user_id = $1::uuid
+        AND p.current_streak = 0
+        AND p.last_answered_at IS NOT NULL
+        AND q.is_active
+        AND q.format <> 'recall'
+      ORDER BY p.last_answered_at DESC`,
+    userId,
+  );
+
+  const byType = new Map<string, number[]>();
+  for (const row of rows) {
+    const list = byType.get(row.key);
+    if (list) {
+      list.push(row.country_id);
+    } else {
+      byType.set(row.key, [row.country_id]);
+    }
+  }
+
+  // Rows arrive newest first, so on a tie the first type seen is the one with
+  // the most recent miss, and a strict comparison keeps it.
+  let best: { key: string; ids: number[] } | null = null;
+  for (const [key, ids] of byType) {
+    if (!quizTypeByKey(key)) continue;
+    if (!best || ids.length > best.ids.length) {
+      best = { key, ids };
+    }
+  }
+  const definition = best ? quizTypeByKey(best.key) : undefined;
+  if (!best || !definition) {
+    return null;
+  }
+  return {
+    count: best.ids.length,
+    quizTypeKey: best.key,
+    quizTypeName: definition.displayName,
+    directionLabel: definition.directionLabel,
+    countryIds: best.ids.slice(0, REVIEW_ROUND_SIZE),
   };
 }
 

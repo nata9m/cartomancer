@@ -69,6 +69,27 @@ export function useSessionStarter(filters: Filters) {
     }
   }
 
+  /**
+   * A round over exactly these countries (#51): the ones that need review. The
+   * filters play no part, so the same `Filters` every other starter takes is
+   * not read.
+   */
+  async function startReview(quizTypeKey: string, countryIds: number[]): Promise<void> {
+    setPendingKey(pendingKeyFor(quizTypeKey, countryIds.length));
+    setError(null);
+    try {
+      const session = await startQuizSession({ quizTypeKey, countryIds });
+      if (session.isGuest) {
+        saveGuestQuiz({ session, answers: [] });
+      }
+      preloadQuestionFlags(session.questions[0]);
+      router.push(`/quiz/${session.id}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not start that round');
+      setPendingKey(null);
+    }
+  }
+
   async function startRecall(regionOverride?: string): Promise<void> {
     setPendingKey(pendingKeyFor('countries-recall'));
     setError(null);
@@ -84,5 +105,5 @@ export function useSessionStarter(filters: Filters) {
     }
   }
 
-  return { startQuiz, startRecall, pendingKey, error };
+  return { startQuiz, startReview, startRecall, pendingKey, error };
 }
