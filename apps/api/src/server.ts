@@ -7,6 +7,7 @@ import { HttpError } from './errors.js';
 import { isUniqueViolation } from './lib/db.js';
 import { registerCatalogRoutes } from './routes/catalog.js';
 import { registerHealthRoutes } from './routes/health.js';
+import { registerMeRoutes } from './routes/me.js';
 import { registerProgressRoutes } from './routes/progress.js';
 import { registerRecallRoutes } from './routes/recall.js';
 import { registerSessionRoutes } from './routes/sessions.js';
@@ -51,7 +52,7 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       if (origin && allowed.includes(origin)) {
         reply.header('access-control-allow-origin', origin);
         reply.header('access-control-allow-headers', 'authorization,content-type,x-cartomancer-user-id');
-        reply.header('access-control-allow-methods', 'GET,POST,OPTIONS');
+        reply.header('access-control-allow-methods', 'GET,POST,PATCH,OPTIONS');
       }
       if (request.method === 'OPTIONS') {
         return reply.code(204).send();
@@ -105,6 +106,7 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
   await registerHealthRoutes(app);
   await registerCatalogRoutes(app);
   await registerSummaryRoutes(app);
+  await registerMeRoutes(app);
   await registerProgressRoutes(app);
   await registerSessionRoutes(app);
   await registerRecallRoutes(app);

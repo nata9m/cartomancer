@@ -19,4 +19,6 @@ export {
   IconBrandGoogle, // ti-brand-google
   IconBrandApple, // ti-brand-apple
   IconCircleCheck, // ti-circle-check
+  IconLogout, // ti-logout
+  IconUser, // ti-user
 } from '@tabler/icons-react';
