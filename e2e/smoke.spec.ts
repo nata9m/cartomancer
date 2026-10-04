@@ -275,3 +275,50 @@ test('a guest can practise exactly the countries they missed (#51)', async ({ pa
     expect(prompt).toContain([...asked].find((name) => prompt.includes(name)) ?? '\u0000');
   }
 });
+
+test('the theme can be chosen, sticks without a flash, and wins over the OS (#57)', async ({
+  page,
+  context,
+  request,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await continueAsGuest(page);
+  const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const html = page.locator('html');
+
+  // System follows the OS: no attribute, and the dark palette from the media query.
+  await expect(html).not.toHaveAttribute('data-theme', /.*/);
+  expect(await background()).toBe('rgb(18, 22, 31)');
+
+  // Pinning light beats a dark OS.
+  await page.getByRole('radio', { name: 'Light' }).click();
+  await expect(html).toHaveAttribute('data-theme', 'light');
+  expect(await background()).toBe('rgb(245, 240, 228)');
+  await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked();
+
+  // The cookie is what the server renders from: a request with no JavaScript at
+  // all gets the theme in the first bytes, which is the "no flash".
+  await expect
+    .poll(async () => (await context.cookies()).find((c) => c.name === 'cartomancer-theme')?.value)
+    .toBe('light');
+  const cookie = (await context.cookies()).map((c) => `${c.name}=${c.value}`).join('; ');
+  const served = await request.get('/', { headers: { cookie } });
+  expect(await served.text()).toMatch(/<html[^>]*data-theme="light"/);
+
+  // And so does the browser chrome colour.
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f5f0e4');
+
+  // Pinning dark, on a light OS.
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.getByRole('radio', { name: 'Dark' }).click();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  expect(await background()).toBe('rgb(18, 22, 31)');
+  await page.reload();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  await expect(page.getByRole('radio', { name: 'Dark' })).toBeChecked();
+
+  // Back to System: the attribute goes, and the OS decides again.
+  await page.getByRole('radio', { name: 'System' }).click();
+  await expect(html).not.toHaveAttribute('data-theme', /.*/);
+  expect(await background()).toBe('rgb(245, 240, 228)');
+});

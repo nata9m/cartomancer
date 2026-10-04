@@ -5,6 +5,7 @@ import { signOutAction } from '@/app/actions';
 import { AccountNameForm } from '@/components/AccountNameForm';
 import { Avatar } from '@/components/Avatar';
 import { DeleteAccount } from '@/components/DeleteAccount';
+import { ThemeSetting } from '@/components/ThemeSetting';
 import { StatsStrip, StreakBar } from '@/components/HomeStats';
 import { IconArrowLeft, IconLogout } from '@/components/icons';
 import { displayNameFor, formatMemberSince, providerLabel } from '@/lib/profile';
@@ -116,6 +117,8 @@ export default async function AccountPage() {
           <StatsStrip summary={summary} />
         </div>
       ) : null}
+
+      <ThemeSetting />
 
       <div className="spacer" />
 

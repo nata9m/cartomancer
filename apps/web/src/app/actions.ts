@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { displayNameProblem, type UserProfile } from '@cartomancer/shared';
 import { isProviderEnabled, signIn, signOut, type SocialProviderId } from '@/auth';
 import { GUEST_COOKIE } from '@/lib/guest';
+import { parseTheme, THEME_COOKIE, THEME_COOKIE_MAX_AGE, type ThemeChoice } from '@/lib/theme';
 import type { NameFormState } from '@/lib/profile';
 import { collectAppleTokens, revokeAppleTokens } from '@/lib/account-deletion';
 import { ApiError, apiFetch, currentUserId } from '@/lib/server-api';
@@ -21,6 +22,22 @@ export async function continueAsGuest(): Promise<void> {
     secure: process.env.NODE_ENV === 'production',
   });
   redirect('/');
+}
+
+/**
+ * Remembers the theme choice (#57). A cookie set here is re-read by the layout
+ * when this action's response re-renders the page, which is also what rewrites
+ * the browser-chrome colour. The value is re-parsed, not trusted: a hand-rolled
+ * POST can send anything.
+ */
+export async function setThemeAction(choice: ThemeChoice): Promise<void> {
+  const store = await cookies();
+  store.set(THEME_COOKIE, parseTheme(choice), {
+    sameSite: 'lax',
+    path: '/',
+    maxAge: THEME_COOKIE_MAX_AGE,
+    secure: process.env.NODE_ENV === 'production',
+  });
 }
 
 export async function signInWithProvider(provider: SocialProviderId): Promise<void> {

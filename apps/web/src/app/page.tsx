@@ -4,6 +4,7 @@ import type { ProgressSummary, UserProfile } from '@cartomancer/shared';
 import { Avatar } from '@/components/Avatar';
 import { HomeQuizCards } from '@/components/HomeQuizCards';
 import { ReviewCard } from '@/components/ReviewCard';
+import { ThemeSetting } from '@/components/ThemeSetting';
 import { CountryOfTheDay } from '@/components/CountryOfTheDay';
 import { SignInBanner, StatsStrip, StreakBar } from '@/components/HomeStats';
 import { IconArrowRight } from '@/components/icons';
@@ -51,7 +52,7 @@ export default async function HomePage() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell home-shell">
       <header className="home-header">
         <div>
           <h1 className="app-title">Cartomancer</h1>
@@ -88,7 +89,7 @@ export default async function HomePage() {
       {/* No filter chips here any more (#28). Every card opens a screen that
           owns its own, so a chip on this one either duplicated theirs or, for
           the three that ignored it, promised something it did not do. */}
-      <HomeQuizCards />
+      <HomeQuizCards summary={summary} />
 
       {/* Not a fifth card: the four above start a round, this one only looks
           something up, and giving it the same weight would invite a tap from
@@ -97,6 +98,8 @@ export default async function HomePage() {
         Browse all countries
         <IconArrowRight size={15} stroke={1.9} />
       </Link>
+
+      <ThemeSetting />
 
       {/* One element, two lines: .app-shell is a flex column with an 18px gap,
           so two siblings here would read as two separate footers. */}
