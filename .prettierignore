@@ -17,3 +17,4 @@ packages/shared/src/facts.ts
 *.json
 *.yaml
 *.yml
+apps/web/src/lib/world-map-data.ts

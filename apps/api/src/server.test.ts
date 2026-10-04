@@ -989,6 +989,108 @@ describe('type-in feedback and hints (#53)', () => {
   });
 });
 
+describe('map mode (#52)', () => {
+  const named = (name: string) => prisma.country.findFirstOrThrow({ where: { name } });
+
+  const submit = async (sessionId: string, sequence: number, value: string) => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sessionId}/answers`,
+      headers: userHeaders(),
+      payload: { sequence, answer: value },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    return response.json();
+  };
+
+  it('asks for a country by name, or by capital, and offers no options to pick from', async () => {
+    const brazil = await named('Brazil');
+    const byCountry = await startSessionWith('map-c2loc', [brazil.id]);
+    assert.equal(byCountry.quizType.format, 'map_tap');
+    assert.equal(byCountry.questions[0].promptLabel, 'Find on the map');
+    assert.equal(byCountry.questions[0].promptText, 'Brazil');
+    assert.equal(byCountry.questions[0].options, undefined);
+    assert.equal(byCountry.questions[0].answerHint, undefined);
+    assert.equal(byCountry.questions[0].answerHashes, undefined);
+
+    const byCapital = await startSessionWith('map-cap2loc', [brazil.id]);
+    assert.equal(byCapital.questions[0].promptText, 'Brasília');
+    assert.equal(byCapital.questions[0].promptLabel, 'Find the country with the capital');
+  });
+
+  it('is right when the country tapped is the one asked for, whatever the casing', async () => {
+    const brazil = await named('Brazil');
+    for (const tapped of ['br', 'BR', ' Br ']) {
+      const session = await startSessionWith('map-c2loc', [brazil.id]);
+      const result = await submit(session.id, 1, tapped);
+      assert.equal(result.wasCorrect, true, tapped);
+      assert.equal(result.matchedBy, 'exact');
+      assert.equal(result.correctAnswer, 'Brazil');
+      assert.equal(result.correctIsoCode, 'BR');
+    }
+  });
+
+  it('says which country a wrong tap was', async () => {
+    const brazil = await named('Brazil');
+    const session = await startSessionWith('map-c2loc', [brazil.id]);
+    const result = await submit(session.id, 1, 'ar');
+    assert.equal(result.wasCorrect, false);
+    assert.equal(result.matchedCountryName, 'Argentina');
+    assert.equal(result.correctAnswer, 'Brazil');
+  });
+
+  it('is wrong, and names nothing, for a tap on nowhere or on something that is not a country', async () => {
+    const brazil = await named('Brazil');
+    for (const tapped of ['', '  ', 'zz', 'not-a-code']) {
+      const session = await startSessionWith('map-c2loc', [brazil.id]);
+      const result = await submit(session.id, 1, tapped);
+      assert.equal(result.wasCorrect, false, JSON.stringify(tapped));
+      assert.equal(result.matchedCountryName, undefined);
+    }
+  });
+
+  it('scores into the same streaks as every other quiz type', async () => {
+    const tonga = await named('Tonga');
+    const first = await startSessionWith('map-c2loc', [tonga.id]);
+    assert.equal((await submit(first.id, 1, 'to')).currentStreak, 1);
+    const second = await startSessionWith('map-c2loc', [tonga.id]);
+    assert.equal((await submit(second.id, 1, 'to')).currentStreak, 2);
+    const third = await startSessionWith('map-c2loc', [tonga.id]);
+    assert.equal((await submit(third.id, 1, 'fj')).currentStreak, 0);
+  });
+
+  it('is checked statelessly for a guest too', async () => {
+    const brazil = await named('Brazil');
+    const check = async (answer: string) =>
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/answers/check',
+          payload: { quizTypeKey: 'map-cap2loc', countryId: brazil.id, answer },
+        })
+      ).json();
+    assert.equal((await check('br')).wasCorrect, true);
+    assert.equal((await check('ar')).wasCorrect, false);
+  });
+
+  it('is a start-able round for a region', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      headers: userHeaders(),
+      payload: { quizTypeKey: 'map-c2loc', region: 'Oceania', questionCount: 5 },
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    const session = response.json();
+    assert.equal(session.questions.length, 5);
+    for (const question of session.questions) {
+      assert.equal(question.options, undefined);
+      const country = await prisma.country.findUniqueOrThrow({ where: { id: question.countryId } });
+      assert.equal(country.region, 'Oceania');
+    }
+  });
+});
+
 describe('review rounds (#51)', () => {
   let reviewUserId: string;
   const REVIEW_EMAIL = 'api-review@cartomancer.invalid';
@@ -2961,7 +3063,7 @@ describe('catalog', () => {
   it('serves the quiz types from the database', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/quiz-types' });
     const body = response.json();
-    assert.equal(body.quizTypes.length, 10);
+    assert.equal(body.quizTypes.length, 12);
     assert.equal(body.unmapped, 0);
   });
 

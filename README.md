@@ -565,6 +565,14 @@ once; a later load finds the cookie current and does nothing.
 `QUIZ_TYPES` in `packages/shared/src/taxonomy.ts` describing its direction.
 Rendering branches on category + format (+ direction), never on a specific key.
 
+**Map mode (#52)** is the one format whose answer is not text: a tap on a world
+map is sent as the ISO alpha-2 code of the country tapped and judged by exact
+comparison (`judgeAnswer`), so there is no matching. The map outlines are a
+generated, committed module (`apps/web/src/lib/world-map-data.ts`, Natural Earth
+1:50m, loaded on demand when a map question first needs it); regenerate it with
+`scripts/generate-world-map.mjs` — the header explains the throwaway install of
+its inputs, which are deliberately not dependencies of the repository.
+
 ## Placeholders and TODOs
 
 These are the things that are deliberately unfinished, and what finishing them

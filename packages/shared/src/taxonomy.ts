@@ -13,10 +13,14 @@ export type Region = (typeof REGIONS)[number];
 export const DIFFICULTIES = ['Easy', 'Medium', 'Hard'] as const;
 export type Difficulty = (typeof DIFFICULTIES)[number];
 
-export const QUIZ_CATEGORIES = ['capitals', 'flags', 'countries', 'trivia'] as const;
+export const QUIZ_CATEGORIES = ['capitals', 'flags', 'countries', 'trivia', 'map'] as const;
 export type QuizCategory = (typeof QUIZ_CATEGORIES)[number];
 
-export const QUIZ_FORMATS = ['multiple_choice', 'type_in', 'recall'] as const;
+/**
+ * `map_tap`: the answer is a tap on a world map (#52). It is sent as the ISO
+ * 3166-1 alpha-2 code of the country tapped, and judged by exact comparison.
+ */
+export const QUIZ_FORMATS = ['multiple_choice', 'type_in', 'recall', 'map_tap'] as const;
 export type QuizFormat = (typeof QUIZ_FORMATS)[number];
 
 /**
@@ -139,6 +143,26 @@ export const QUIZ_TYPES: readonly QuizTypeDefinition[] = [
     directionLabel: 'Fact → country',
     direction: 'attribute_to_country',
     description: 'Guess the country from a clue',
+    isActive: true,
+  },
+  {
+    key: 'map-c2loc',
+    category: 'map',
+    format: 'map_tap',
+    displayName: 'Map',
+    directionLabel: 'Country → location',
+    direction: 'country_to_attribute',
+    description: 'Find the country on a world map',
+    isActive: true,
+  },
+  {
+    key: 'map-cap2loc',
+    category: 'map',
+    format: 'map_tap',
+    displayName: 'Map',
+    directionLabel: 'Capital → location',
+    direction: 'attribute_to_country',
+    description: 'Find the country that has the capital shown',
     isActive: true,
   },
 ] as const;
