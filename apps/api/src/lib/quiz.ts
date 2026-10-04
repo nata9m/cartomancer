@@ -13,6 +13,7 @@ import {
   quizTypeByKey,
 } from '@cartomancer/shared';
 import type { Country, PrismaClient, QuizType } from '@cartomancer/db';
+import type { Db } from './db.js';
 import { badRequest, notFound } from '../errors.js';
 import type { AnswerDomain } from './matching.js';
 
@@ -553,7 +554,7 @@ export async function loadFactsByIds(
  * Only called for signed-in trivia sessions.
  */
 export async function recordFactProgress(
-  prisma: PrismaClient,
+  prisma: Db,
   userId: string,
   factId: number,
   answeredAt: Date,
@@ -571,7 +572,7 @@ export async function recordFactProgress(
  * answered again since in a later round.
  */
 export async function ensureFactProgress(
-  prisma: PrismaClient,
+  prisma: Db,
   userId: string,
   factId: number,
   answeredAt: Date,

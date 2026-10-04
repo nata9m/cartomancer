@@ -13,6 +13,7 @@ import { getPrisma } from '@cartomancer/db';
 import { matchesAcceptedAnswer, normalizeAnswer } from '@cartomancer/shared';
 import { type ClueCandidate, pickClues } from './lib/quiz.js';
 import type { FastifyInstance } from 'fastify';
+import { clearCountryCache, loadAllCountries } from './lib/countries.js';
 import { loadSummary } from './lib/progress.js';
 import { requestTimeZone } from './timezone.js';
 import { loadEnv } from './env.js';
@@ -1429,6 +1430,363 @@ describe('day streak is counted in the player timezone (#66)', () => {
       headers: { 'x-cartomancer-user-id': tzUserId, 'x-cartomancer-timezone': 'nonsense' },
     });
     assert.equal(bad.statusCode, 200);
+  });
+});
+
+/**
+ * Answering is atomic and safe to race (#54).
+ *
+ * It used to be four independent statements: the "already answered?" check, the
+ * answer row, the streak, the score. Two submits of one question — a double tap,
+ * or a client retry (#58) arriving while the original is in flight — both passed
+ * the check and the second hit the primary key as a 500; two answers to
+ * different questions each recounted the score before the other committed; and
+ * a failure part-way left the pieces disagreeing with each other for good.
+ *
+ * Races are only ever probable, never certain, so the concurrent tests repeat
+ * and fire several at once. They are cheap, and with the fix reverted they fail.
+ */
+describe('answering is atomic and safe to race (#54)', () => {
+  const EMAIL = 'atomic-test@cartomancer.invalid';
+  let playerId: string;
+  const as = () => ({ 'x-cartomancer-user-id': playerId });
+
+  before(async () => {
+    await prisma.user.deleteMany({ where: { email: EMAIL } });
+    playerId = (
+      await prisma.user.create({ data: { email: EMAIL, name: 'Atomic Test', authProvider: 'google' } })
+    ).id;
+  });
+
+  after(async () => {
+    await prisma.user.deleteMany({ where: { email: EMAIL } });
+  });
+
+  const QUIZ = 'capitals-c2cap-type';
+
+  /** A session for this player over exactly these countries. */
+  const sessionOver = async (
+    countryIds: number[],
+    quizTypeKey = QUIZ,
+  ): Promise<{ id: string; quizTypeId: number }> => {
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: quizTypeKey } });
+    const created = await prisma.quizSession.create({
+      data: {
+        quizTypeId: quizType.id,
+        questionCount: countryIds.length,
+        createdBy: playerId,
+        participants: { create: [{ userId: playerId }] },
+        questions: {
+          create: countryIds.map((countryId, index) => ({ sequence: index + 1, countryId })),
+        },
+      },
+    });
+    return { id: created.id, quizTypeId: quizType.id };
+  };
+
+  const submit = (sessionId: string, sequence: number, value: string) =>
+    app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sessionId}/answers`,
+      headers: as(),
+      payload: { sequence, answer: value },
+    });
+
+  const countries = async (take: number, skip = 0) =>
+    prisma.country.findMany({ orderBy: { id: 'asc' }, take, skip });
+
+  const score = async (sessionId: string) =>
+    (
+      await prisma.sessionParticipant.findUniqueOrThrow({
+        where: { sessionId_userId: { sessionId, userId: playerId } },
+      })
+    ).score;
+
+  it('two submits of one question at once: one is counted, the rest replay it, none fail', async () => {
+    const pool = await countries(6, 20);
+    for (const country of pool) {
+      const session = await sessionOver([country.id]);
+      const responses = await Promise.all(
+        Array.from({ length: 4 }, () => submit(session.id, 1, country.capital)),
+      );
+
+      for (const response of responses) {
+        assert.equal(response.statusCode, 200, `${country.name}: ${response.body}`);
+        assert.equal(response.json().wasCorrect, true);
+      }
+      const matched = responses.map((r) => r.json().matchedBy);
+      assert.equal(
+        matched.filter((by) => by !== 'replay').length,
+        1,
+        `exactly one submit is the real one: ${matched.join(',')}`,
+      );
+      assert.equal(matched.filter((by) => by === 'replay').length, 3);
+
+      // Counted once, however many arrived.
+      assert.equal(
+        await prisma.sessionAnswer.count({ where: { sessionId: session.id, userId: playerId } }),
+        1,
+      );
+      const progress = await prisma.progress.findUniqueOrThrow({
+        where: {
+          userId_countryId_quizTypeId: {
+            userId: playerId,
+            countryId: country.id,
+            quizTypeId: session.quizTypeId,
+          },
+        },
+      });
+      assert.equal(progress.currentStreak, 1, 'a double tap is one answer, not two in a row');
+      assert.equal(await score(session.id), 1);
+    }
+  });
+
+  it('answers to different questions at once all count towards the score', async () => {
+    // Each used to recount the score before the others had committed, so each
+    // wrote a score one short and the last writer won.
+    const pool = await countries(12, 40);
+    const session = await sessionOver(pool.map((c) => c.id));
+    const responses = await Promise.all(
+      pool.map((country, index) => submit(session.id, index + 1, country.capital)),
+    );
+    for (const response of responses) {
+      assert.equal(response.statusCode, 200, response.body);
+    }
+    assert.equal(
+      await prisma.sessionAnswer.count({
+        where: { sessionId: session.id, userId: playerId, wasCorrect: true },
+      }),
+      12,
+    );
+    assert.equal(await score(session.id), 12, 'the score is what session_answers says it is');
+  });
+
+  it('the same country answered in several sessions at once loses no streak', async () => {
+    // Two tabs, or two sessions: the streak was read, incremented in JavaScript
+    // and written back, so concurrent answers read the same value and one
+    // correct answer vanished from the count.
+    // Not narrowed with assert.ok: inside this loop that makes the types depend
+    // on the assertions below them, which TypeScript reports as a cycle.
+    const country = (await countries(1, 70))[0]!;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await prisma.progress.deleteMany({ where: { userId: playerId, countryId: country.id } });
+      const sessions: { id: string; quizTypeId: number }[] = await Promise.all(
+        Array.from({ length: 3 }, () => sessionOver([country.id])),
+      );
+      const responses = await Promise.all(
+        sessions.map((session) => submit(session.id, 1, country.capital)),
+      );
+      const results = responses.map((r) => {
+        assert.equal(r.statusCode, 200, r.body);
+        return r.json();
+      });
+
+      assert.deepEqual(
+        results.map((r) => r.currentStreak).sort(),
+        [1, 2, 3],
+        'every correct answer moved the streak up by one',
+      );
+      assert.equal(results.filter((r) => r.newlyLearned).length, 1, 'learned exactly once');
+      assert.equal(results.find((r) => r.newlyLearned)?.currentStreak, 3);
+      const stored = await prisma.progress.findFirstOrThrow({
+        where: { userId: playerId, countryId: country.id },
+      });
+      assert.equal(stored.currentStreak, 3);
+      assert.equal(stored.isLearned, true);
+    }
+  });
+
+  it('a wrong answer still resets the streak and demotes, in one statement', async () => {
+    const country = (await countries(1, 80))[0]!;
+    const rounds: [string, number, boolean][] = [
+      [country.capital, 1, false],
+      [country.capital, 2, false],
+      [country.capital, 3, true],
+      [country.capital, 4, true],
+      ['definitely not it', 0, false],
+      [country.capital, 1, false],
+    ];
+    for (const [value, streak, learned] of rounds) {
+      const session = await sessionOver([country.id]);
+      const result = (await submit(session.id, 1, value)).json();
+      assert.equal(result.currentStreak, streak, value);
+      assert.equal(result.isLearned, learned, value);
+    }
+  });
+
+  it('a failure part-way through leaves nothing behind, and a retry starts clean', async () => {
+    // Injected at the very last step: a constraint the third correct answer's
+    // score would violate. Before, the answer row and the streak were already
+    // committed by then, and nothing ever reconciled them with the score.
+    const pool = await countries(3, 100);
+    const session = await sessionOver(pool.map((c) => c.id));
+    await prisma.$executeRawUnsafe(
+      // NOT VALID: earlier tests left participants above 3, and this only needs the
+      // rows that change from here on to be held to it.
+      'ALTER TABLE session_participants ADD CONSTRAINT tmp_score_below_3 CHECK (score < 3) NOT VALID',
+    );
+    try {
+      for (const [index, country] of pool.slice(0, 2).entries()) {
+        assert.equal((await submit(session.id, index + 1, country.capital)).statusCode, 200);
+      }
+      const third = pool[2]!;
+      const failed = await submit(session.id, 3, third.capital);
+      assert.equal(failed.statusCode, 500, 'the injected failure surfaces');
+
+      assert.equal(
+        await prisma.sessionAnswer.count({ where: { sessionId: session.id, userId: playerId } }),
+        2,
+        'the answer row was rolled back with the rest',
+      );
+      assert.equal(
+        await prisma.progress.count({
+          where: { userId: playerId, countryId: third.id, quizTypeId: session.quizTypeId },
+        }),
+        0,
+        'and so was the streak',
+      );
+      assert.equal(await score(session.id), 2);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        'ALTER TABLE session_participants DROP CONSTRAINT tmp_score_below_3',
+      );
+    }
+
+    // The failure was not recorded as an answer, so the retry is a real one.
+    const retried = await submit(session.id, 3, pool[2]!.capital);
+    assert.equal(retried.statusCode, 200, retried.body);
+    assert.notEqual(retried.json().matchedBy, 'replay');
+    assert.equal(retried.json().currentStreak, 1);
+    assert.equal(await score(session.id), 3);
+  });
+
+  describe('recall guesses', () => {
+    const startRecall = async () =>
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/recall',
+          headers: as(),
+          payload: { region: 'Oceania' },
+        })
+      ).json() as { id: string };
+    const guess = (sessionId: string, value: string) =>
+      app.inject({
+        method: 'POST',
+        url: `/api/recall/${sessionId}/guesses`,
+        headers: as(),
+        payload: { guess: value },
+      });
+    const recallScore = async (sessionId: string) =>
+      (
+        await prisma.sessionParticipant.findUniqueOrThrow({
+          where: { sessionId_userId: { sessionId, userId: playerId } },
+        })
+      ).score;
+
+    it('the same country sent several times at once is accepted once and the rest are duplicates', async () => {
+      const round = await startRecall();
+      const responses = await Promise.all(Array.from({ length: 4 }, () => guess(round.id, 'Fiji')));
+      for (const response of responses) {
+        assert.equal(response.statusCode, 200, response.body);
+      }
+      const bodies = responses.map((r) => r.json());
+      assert.equal(bodies.filter((b) => b.accepted).length, 1, 'counted once');
+      assert.equal(bodies.filter((b) => b.duplicate).length, 3);
+      for (const body of bodies) {
+        assert.equal(body.country.name, 'Fiji');
+      }
+      assert.equal(
+        await prisma.sessionAnswer.count({ where: { sessionId: round.id, userId: playerId } }),
+        1,
+      );
+      assert.equal(await recallScore(round.id), 1);
+    });
+
+    it('different countries named at once all count towards the score', async () => {
+      const round = await startRecall();
+      const names = ['Fiji', 'Samoa', 'Tonga', 'Tuvalu', 'Vanuatu', 'Nauru'];
+      const responses = await Promise.all(names.map((name) => guess(round.id, name)));
+      for (const response of responses) {
+        assert.equal(response.statusCode, 200, response.body);
+        assert.equal(response.json().accepted, true);
+      }
+      assert.equal(await recallScore(round.id), 6, 'no recount came up one short');
+      assert.equal(
+        await prisma.sessionAnswer.count({ where: { sessionId: round.id, userId: playerId } }),
+        6,
+      );
+    });
+  });
+
+  it('turns an unhandled unique violation into a 409, not a 500', async () => {
+    const net = await buildServer({ ...loadEnv(), LOG_LEVEL: 'fatal', INTERNAL_API_KEY: '' });
+    net.get('/__unique', async () => {
+      throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    });
+    const response = await net.inject({ method: 'GET', url: '/__unique' });
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.json().error, 'conflict');
+    await net.close();
+  });
+});
+
+describe('the country list used for distractors is cached (#54)', () => {
+  const fake = (calls: { n: number }, fail = false) =>
+    ({
+      country: {
+        findMany: async () => {
+          calls.n += 1;
+          if (fail) throw new Error('database blip');
+          return [{ id: calls.n }];
+        },
+      },
+    }) as never;
+
+  it('reads once within the TTL, and again after it', async () => {
+    clearCountryCache();
+    const calls = { n: 0 };
+    const db = fake(calls);
+    const t0 = 1_000_000;
+    const [a, b] = await Promise.all([loadAllCountries(db, t0), loadAllCountries(db, t0 + 5)]);
+    assert.equal(calls.n, 1, 'concurrent first requests share one query');
+    assert.strictEqual(a, b);
+    await loadAllCountries(db, t0 + 9 * 60_000);
+    assert.equal(calls.n, 1, 'still fresh at nine minutes');
+    await loadAllCountries(db, t0 + 11 * 60_000);
+    assert.equal(calls.n, 2, 'read again once stale');
+    clearCountryCache();
+  });
+
+  it('does not remember a failed read', async () => {
+    clearCountryCache();
+    const calls = { n: 0 };
+    await assert.rejects(loadAllCountries(fake(calls, true), 5_000_000));
+    await new Promise((resolve) => setImmediate(resolve));
+    const rows = await loadAllCountries(fake(calls), 5_000_001);
+    assert.equal(rows.length, 1, 'the next request tries again rather than replaying the failure');
+    clearCountryCache();
+  });
+
+  it('serves real sessions from the cache without changing what they ask', async () => {
+    clearCountryCache();
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { quizTypeKey: 'capitals-c2cap-mc', questionCount: 5 },
+    });
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { quizTypeKey: 'capitals-c2cap-mc', questionCount: 5 },
+    });
+    for (const response of [first, second]) {
+      assert.equal(response.statusCode, 201);
+      for (const question of response.json().questions) {
+        assert.equal(question.options.length, 4);
+        assert.equal(new Set(question.options.map((o: { label: string }) => o.label)).size, 4);
+      }
+    }
   });
 });
 

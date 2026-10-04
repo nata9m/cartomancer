@@ -7,6 +7,7 @@ import {
   type QuizCategory,
 } from '@cartomancer/shared';
 import type { PrismaClient } from '@cartomancer/db';
+import type { Db } from './db.js';
 
 export interface ProgressUpdate {
   currentStreak: number;
@@ -27,9 +28,17 @@ export interface ProgressUpdate {
  *
  * The threshold is 3 in a row everywhere except active recall, where a single
  * successful recall is enough.
+ *
+ * One statement, not read-then-write (#54). This used to read the streak, add
+ * one in JavaScript and upsert it back, so two answers to the same country in
+ * flight together — two tabs, two sessions — both read the same streak and both
+ * wrote the same successor: one correct answer vanished from the count. The
+ * increment is now done by the database against the row as it is when the write
+ * lands (`progress.current_streak` in the DO UPDATE is the committed row, after
+ * waiting on any concurrent writer), so every answer counts.
  */
 export async function recordProgress(
-  prisma: PrismaClient,
+  db: Db,
   options: {
     userId: string;
     quizTypeId: number;
@@ -42,23 +51,41 @@ export async function recordProgress(
   const { userId, quizTypeId, quizTypeKey, countryId, wasCorrect } = options;
   const answeredAt = options.answeredAt ?? new Date();
   const threshold = learnedThresholdFor(quizTypeKey);
+  // What a brand-new row starts at: one correct answer, or nothing.
+  const firstStreak = wasCorrect ? 1 : 0;
 
-  const existing = await prisma.progress.findUnique({
-    where: { userId_countryId_quizTypeId: { userId, countryId, quizTypeId } },
-  });
+  const rows = await db.$queryRawUnsafe<{ current_streak: number; is_learned: boolean }[]>(
+    `INSERT INTO progress
+            (user_id, country_id, quiz_type_id, current_streak, is_learned, last_answered_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::boolean, $6::timestamptz)
+     ON CONFLICT (user_id, country_id, quiz_type_id) DO UPDATE
+        SET current_streak  = CASE WHEN $7::boolean THEN progress.current_streak + 1 ELSE 0 END,
+            is_learned      = (CASE WHEN $7::boolean THEN progress.current_streak + 1 ELSE 0 END) >= $8::int,
+            last_answered_at = EXCLUDED.last_answered_at
+     RETURNING current_streak, is_learned`,
+    userId,
+    countryId,
+    quizTypeId,
+    firstStreak,
+    firstStreak >= threshold,
+    answeredAt,
+    wasCorrect,
+    threshold,
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new Error('progress upsert returned no row');
+  }
 
-  const previousStreak = existing?.currentStreak ?? 0;
-  const previouslyLearned = previousStreak >= threshold;
-  const currentStreak = wasCorrect ? previousStreak + 1 : 0;
-  const isLearned = currentStreak >= threshold;
-
-  await prisma.progress.upsert({
-    where: { userId_countryId_quizTypeId: { userId, countryId, quizTypeId } },
-    create: { userId, countryId, quizTypeId, currentStreak, isLearned, lastAnsweredAt: answeredAt },
-    update: { currentStreak, isLearned, lastAnsweredAt: answeredAt },
-  });
-
-  return { currentStreak, isLearned, newlyLearned: isLearned && !previouslyLearned };
+  const currentStreak = Number(row.current_streak);
+  // A correct answer moved the streak up by exactly one, so it crossed the
+  // threshold exactly when it landed on it. A wrong one resets to zero and can
+  // never be the answer that learned something.
+  return {
+    currentStreak,
+    isLearned: row.is_learned,
+    newlyLearned: wasCorrect && currentStreak === threshold,
+  };
 }
 
 /**

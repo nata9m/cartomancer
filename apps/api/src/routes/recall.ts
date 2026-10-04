@@ -10,6 +10,7 @@ import type { PrismaClient } from '@cartomancer/db';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { forbidden, notFound } from '../errors.js';
+import { isUniqueViolation, lockParticipant } from '../lib/db.js';
 import { matchWithinPool } from '../lib/matching.js';
 import { recordProgress } from '../lib/progress.js';
 import { parseRegion, resolveQuizType } from '../lib/quiz.js';
@@ -156,33 +157,64 @@ export async function registerRecallRoutes(app: FastifyInstance): Promise<void> 
 
     const country = await app.prisma.country.findUniqueOrThrow({ where: { id: match.countryId } });
     const answeredAt = new Date();
-    await app.prisma.sessionAnswer.create({
-      data: {
-        sessionId: session.id,
-        userId,
-        countryId: country.id,
-        wasCorrect: true,
-        answeredAt,
-      },
-    });
-    await recordProgress(app.prisma, {
-      userId,
-      quizTypeId: session.quizTypeId,
-      quizTypeKey: RECALL_QUIZ_TYPE_KEY,
-      countryId: country.id,
-      wasCorrect: true,
-      answeredAt,
-    });
-    await app.prisma.sessionParticipant.update({
-      where: { sessionId_userId: { sessionId: session.id, userId } },
-      data: { score: recalledIds.size + 1 },
-    });
+
+    // One unit, like answering a quiz question (#54): the answer, the country
+    // marked learned, and the score either all happen or none do. The count is
+    // taken inside, under the participant lock, so naming two countries in quick
+    // succession cannot leave the score one short.
+    let recalledCount: number;
+    try {
+      recalledCount = await app.prisma.$transaction(async (tx) => {
+        await lockParticipant(tx, session.id, userId);
+        await tx.sessionAnswer.create({
+          data: {
+            sessionId: session.id,
+            userId,
+            countryId: country.id,
+            wasCorrect: true,
+            answeredAt,
+          },
+        });
+        await recordProgress(tx, {
+          userId,
+          quizTypeId: session.quizTypeId,
+          quizTypeKey: RECALL_QUIZ_TYPE_KEY,
+          countryId: country.id,
+          wasCorrect: true,
+          answeredAt,
+        });
+        const recalled = await tx.sessionAnswer.count({
+          where: { sessionId: session.id, userId, wasCorrect: true },
+        });
+        await tx.sessionParticipant.update({
+          where: { sessionId_userId: { sessionId: session.id, userId } },
+          data: { score: recalled },
+        });
+        return recalled;
+      });
+    } catch (error) {
+      // The same country sent twice at once — a double tap on "Add country", or
+      // a retry (#58) racing the original. The first one counted; this is the
+      // duplicate it would have been a moment later.
+      if (isUniqueViolation(error)) {
+        const result: RecallGuessResult = {
+          accepted: false,
+          duplicate: true,
+          country: { id: country.id, name: country.name, isoCode: country.isoCode },
+          recalledCount: await app.prisma.sessionAnswer.count({
+            where: { sessionId: session.id, userId, wasCorrect: true },
+          }),
+        };
+        return result;
+      }
+      throw error;
+    }
 
     const result: RecallGuessResult = {
       accepted: true,
       duplicate: false,
       country: { id: country.id, name: country.name, isoCode: country.isoCode },
-      recalledCount: recalledIds.size + 1,
+      recalledCount,
     };
     return result;
   });

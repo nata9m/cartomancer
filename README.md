@@ -381,6 +381,24 @@ source. Nothing is *decided* in the browser: a local match submits through the
 ordinary answer path and the **server still matches, scores and owns streaks and
 `is_learned`**, exactly as it does for a typed Enter.
 
+**Answering is atomic and safe to race (#54).** Recording an answer is one
+transaction: the answer row, the streak, the clue's rotation row and the
+session score either all happen or none do, so a failure part-way leaves nothing
+for a retry to trip over. The transaction takes the participant's row lock first
+(`lockParticipant`), which serialises one player's answers to one session: a
+second submit of the same question waits for the first instead of racing it, and
+the score — a recount of correct answers — never comes up one short when several
+questions are answered together. A submit that loses that race is answered like
+any other repeat (#58): what the winner recorded, `matchedBy: 'replay'`, not an
+error and not a 409 that would tell the player a counted answer had failed. The
+streak itself is a single `INSERT … ON CONFLICT DO UPDATE` that increments in
+the database, so the same country answered in two sessions at once loses no
+answer from the count. Recall guesses take the same path, with the same
+duplicate answer for the same country sent twice. A unique-constraint error that
+nothing handled is a 409, never a 500. The 195 countries used for
+multiple-choice distractors are held in memory for ten minutes rather than read
+on every session start and rehydrate.
+
 **"I don't know"** on a type-in question submits an empty answer, so it is
 scored and recorded exactly like a wrong guess — streak reset, country on the
 missed list — while revealing the correct answer. Giving up teaches something
