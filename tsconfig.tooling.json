@@ -1,0 +1,15 @@
+{
+  // Type-checks the repo's own tooling (#55): the Playwright and Vitest
+  // configs and the end-to-end specs. Nothing here ships — the app packages
+  // each check their own sources — so this exists only so a typo in a config or
+  // a spec fails `pnpm typecheck` instead of failing the first run that uses it.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["playwright.config.ts", "vitest.config.ts", "e2e/**/*.ts"]
+}

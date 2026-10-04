@@ -153,9 +153,7 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
       {results.dayStreak !== null && results.dayStreak > 0 ? (
         <div className="callout">
           <IconFlame size={17} stroke={1.9} className="callout-icon" />
-          <span>
-            {results.dayStreak} day streak — nice work today
-          </span>
+          <span>{results.dayStreak} day streak — nice work today</span>
         </div>
       ) : null}
 
@@ -189,7 +187,12 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
 
       <div className="stack">
         {startError ? <p className="error-note">{startError}</p> : null}
-        <button type="button" className="button-primary" onClick={() => void playAgain()} disabled={busy}>
+        <button
+          type="button"
+          className="button-primary"
+          onClick={() => void playAgain()}
+          disabled={busy}
+        >
           Play again
           <IconArrowRight size={16} stroke={2} />
         </button>

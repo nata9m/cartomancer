@@ -76,6 +76,12 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
 
     const stored = loadGuestRecall(sessionId);
     if (!stored) {
+      // sessionStorage does not exist while rendering on the server, so a guest
+      // round can only be looked for after mount — an effect reading an external
+      // store, which is what this rule's own guidance allows. Reading it in the
+      // state initialiser instead would render differently on the server and in
+      // the browser, which is a hydration mismatch.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(
         'This guest round is no longer in this tab’s memory. Guest sessions are never saved to the server — start a new one from the home screen.',
       );
@@ -283,7 +289,12 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
       {/* Sticky, so a long round (44 countries in Europe, 195 in all) does not
           bury the way out below the list it is growing (#67). */}
       <div className="recall-finish">
-        <button type="button" className="button-primary" onClick={() => void finish()} disabled={busy}>
+        <button
+          type="button"
+          className="button-primary"
+          onClick={() => void finish()}
+          disabled={busy}
+        >
           {complete ? 'Show results' : 'I\u2019m done \u2014 show results'}
         </button>
       </div>

@@ -88,8 +88,8 @@ export function DeleteAccount() {
         Delete your account?
       </h2>
       <p className="danger-text">
-        This permanently deletes your account, your streak and everything you&rsquo;ve learned.
-        This can&rsquo;t be undone.
+        This permanently deletes your account, your streak and everything you&rsquo;ve learned. This
+        can&rsquo;t be undone.
       </p>
       <label className="field-label" htmlFor="delete-confirm">
         Type {CONFIRM_WORD} to confirm

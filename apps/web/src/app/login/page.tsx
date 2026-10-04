@@ -64,9 +64,9 @@ export default async function LoginPage({
         </div>
       ) : (
         <p className="small-muted centered">
-          No sign-in providers are configured, so account sign-in is unavailable. Set
-          AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET (see .env.example) once the OAuth app is
-          registered. Guest mode works regardless.
+          No sign-in providers are configured, so account sign-in is unavailable. Set AUTH_GOOGLE_ID
+          and AUTH_GOOGLE_SECRET (see .env.example) once the OAuth app is registered. Guest mode
+          works regardless.
         </p>
       )}
 

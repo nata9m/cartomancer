@@ -71,6 +71,63 @@ pnpm --filter @cartomancer/db studio          # Prisma Studio
 `apps/web/restart-dev-server.sh` serves the production standalone build locally,
 the way the container does (`next start` refuses to run a `standalone` build).
 
+## Checks and tests (#55)
+
+CI runs all of these, in this order, on every push and pull request — static
+checks first, so a failure there costs seconds, and the browser last. Each is one
+command from the repo root:
+
+```bash
+pnpm typecheck      # every package, the web app's tests, and the tooling configs
+pnpm lint           # ESLint over the whole workspace, warnings fail
+pnpm format:check   # Prettier (pnpm format rewrites)
+pnpm --filter @cartomancer/api test   # integration tests, needs a migrated, seeded DB
+pnpm test:unit      # Vitest: the web app's own logic, no server
+pnpm test:e2e       # Playwright smoke tests: needs `pnpm -r build` and a seeded DB
+```
+
+**Lint.** One flat config (`eslint.config.mjs`) for the workspace: `eslint-config-next`
+(Core Web Vitals + TypeScript) with `react-hooks/exhaustive-deps` raised to an
+error, because a missing dependency in the hand-maintained effect and callback
+arrays is a stale closure, not a style note. Warnings fail the build
+(`--max-warnings 0`); where the code does something a rule objects to on
+purpose, the line carries a directive and the reason beside it.
+
+**Format.** Prettier, with the style the code already had (single quotes, trailing
+commas, 100 columns). It covers code and CSS only — the README, JSON and YAML are
+hand-wrapped, and the three generated-looking data tables in `packages/shared`
+(`countries.ts`, `country-details.ts`, `facts.ts`) are ignored because their layout
+carries meaning.
+
+**Unit tests** live next to what they test, as `apps/web/src/**/*.test.ts`. They
+run in Node, and a file that needs a browser's storage opts into jsdom with a
+`// @vitest-environment jsdom` docblock, so the pure ones cannot lean on a
+`window` that is not there. The day-streak and week helpers in the api are
+covered the same way by `apps/api/src/lib/progress.test.ts`, on the api's own
+runner (`node:test`), with no database. Web tests are *excluded* from
+`apps/web/tsconfig.json` and type-checked by `tsconfig.test.json` instead: `next
+build` checks every file the first one includes, and the container image does
+not install the test runner.
+
+**Smoke tests** (`e2e/`, config in `playwright.config.ts`) start the real api and
+the production build of the web app themselves, on ports `18080` and `13000` so a
+running `pnpm dev` is left alone, and drive them as a guest on a phone-sized
+viewport: a Capitals multiple-choice round to the results screen, and a type-in
+round where an exact answer accepts itself and a typo waits for Enter. Guest
+play writes nothing, so the tests need no sign-in and leave no rows. After a
+failed CI run, the traces and screenshots are attached as the
+`playwright-report` artifact. Locally, `pnpm exec playwright install chromium`
+once, or set `PLAYWRIGHT_BROWSERS_PATH` to an existing install.
+
+All of the tooling is a root `devDependency`, so the Dockerfiles' filtered
+`pnpm install` installs it too: that is the build stage only — the runtime images
+are the standalone output and a `pnpm deploy --prod`, which never see it — but it
+is real extra work there (a filtered install of the web app goes from 192
+packages to about 570). If that ever matters, the way out is a private `tools/`
+workspace package that the Dockerfiles do not `COPY`; pnpm's frozen filtered
+install tolerates a workspace package that is in the lockfile and absent from the
+build context.
+
 ## Environment variables
 
 Each app has a commented `.env.example`; the short version:

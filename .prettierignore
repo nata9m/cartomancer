@@ -1,0 +1,19 @@
+# Generated, vendored or locked: formatting these is noise at best.
+pnpm-lock.yaml
+**/.next/
+**/dist/
+**/node_modules/
+**/generated/
+packages/db/prisma/migrations/
+apps/web/public/
+playwright-report/
+test-results/
+# Hand-formatted data tables whose layout carries meaning.
+packages/shared/src/countries.ts
+packages/shared/src/country-details.ts
+packages/shared/src/facts.ts
+# Prose and config are hand-wrapped on purpose; Prettier is for code and CSS.
+*.md
+*.json
+*.yaml
+*.yml

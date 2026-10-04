@@ -5,11 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { RecallResults as RecallResultsPayload } from '@cartomancer/shared';
 import { IconArrowRight, IconCheck, IconX } from './icons';
-import {
-  loadCountries,
-  loadRecallResults,
-  startRecallSession,
-} from '@/lib/client-api';
+import { loadCountries, loadRecallResults, startRecallSession } from '@/lib/client-api';
 import { isGuestSessionId, loadGuestRecall, saveGuestRecall } from '@/lib/guest-store';
 
 /** Long lists are truncated with a "+N more" pill, as in the mockup. */
@@ -38,7 +34,11 @@ function PillList({
     <div className="pill-list">
       {shown.map((country) => (
         <span className={`pill pill--${tone}`} key={country.id}>
-          {tone === 'success' ? <IconCheck size={13} stroke={2.2} /> : <IconX size={13} stroke={2.2} />}
+          {tone === 'success' ? (
+            <IconCheck size={13} stroke={2.2} />
+          ) : (
+            <IconX size={13} stroke={2.2} />
+          )}
           {country.name}
         </span>
       ))}
@@ -190,7 +190,12 @@ export function RecallResults({ sessionId }: { sessionId: string }) {
 
       <div className="stack">
         {startError ? <p className="error-note">{startError}</p> : null}
-        <button type="button" className="button-primary" onClick={() => void tryAgain()} disabled={busy}>
+        <button
+          type="button"
+          className="button-primary"
+          onClick={() => void tryAgain()}
+          disabled={busy}
+        >
           Try again
           <IconArrowRight size={16} stroke={2} />
         </button>

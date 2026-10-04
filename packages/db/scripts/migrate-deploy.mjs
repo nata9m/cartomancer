@@ -36,11 +36,15 @@ const cli = require.resolve('prisma/build/index.js');
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 
 const args = process.argv.slice(2);
-const result = spawnSync(process.execPath, [cli, ...(args.length > 0 ? args : ['migrate', 'deploy'])], {
-  cwd: packageRoot,
-  stdio: 'inherit',
-  env: process.env,
-});
+const result = spawnSync(
+  process.execPath,
+  [cli, ...(args.length > 0 ? args : ['migrate', 'deploy'])],
+  {
+    cwd: packageRoot,
+    stdio: 'inherit',
+    env: process.env,
+  },
+);
 
 // Only the rollout path seeds. Someone running this by hand for `migrate
 // status` or `migrate resolve` is inspecting or repairing, not deploying.

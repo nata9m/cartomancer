@@ -85,7 +85,10 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      <AccountNameForm initialName={profile.name} fallback={displayNameFor({ name: null, email: profile.email })} />
+      <AccountNameForm
+        initialName={profile.name}
+        fallback={displayNameFor({ name: null, email: profile.email })}
+      />
 
       <dl className="fact-list">
         <div className="fact-row">

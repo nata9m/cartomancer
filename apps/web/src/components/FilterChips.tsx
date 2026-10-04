@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { DIFFICULTIES, QUESTION_COUNT_OPTIONS, REGIONS } from '@cartomancer/shared';
 import { IconChevronDown } from './icons';
 import type { Filters } from '@/lib/filters';
@@ -28,11 +28,17 @@ export function FilterChips({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  // The URL is the source of truth; `local` mirrors it so a chip changes the
+  // instant it is tapped, before the navigation that makes it official. When the
+  // filters arrive again from the server, they win — adjusted during render
+  // rather than in an effect, which would paint the stale value first and then
+  // render a second time (react.dev: "adjusting state when a prop changes").
   const [local, setLocal] = useState<Filters>(filters);
-
-  useEffect(() => {
+  const [seen, setSeen] = useState<Filters>(filters);
+  if (filters !== seen) {
+    setSeen(filters);
     setLocal(filters);
-  }, [filters]);
+  }
 
   const update = (key: keyof Filters, value: string): void => {
     const next = { ...local, [key]: value };
@@ -45,9 +51,7 @@ export function FilterChips({
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
 
-  const countLabel = local.questionCount
-    ? `${local.questionCount} questions`
-    : '20 questions';
+  const countLabel = local.questionCount ? `${local.questionCount} questions` : '20 questions';
 
   return (
     <div className="filter-chips">
@@ -88,7 +92,9 @@ export function FilterChips({
       ) : null}
 
       {showQuestionCount ? (
-        <span className={`chip${local.questionCount && local.questionCount !== '20' ? ' chip--active' : ''}`}>
+        <span
+          className={`chip${local.questionCount && local.questionCount !== '20' ? ' chip--active' : ''}`}
+        >
           {countLabel}
           <IconChevronDown size={14} stroke={1.75} />
           <select
