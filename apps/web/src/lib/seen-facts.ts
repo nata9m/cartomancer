@@ -1,67 +1,85 @@
 'use client';
 
-import type { Filters } from './filters';
-
 /**
- * Guest fact rotation: keeps a list of seen fact IDs in localStorage, keyed
- * by filter combination. When all facts for a filter combo have been seen
- * (the API returns fewer questions than requested), the list auto-resets on
- * the next play.
+ * Guest clue rotation (#70): one list per browser, `{ [factId]: lastSeenMs }`.
+ *
+ * It is sent with the start request and the api orders the matching clues
+ * unmet-first, then oldest-met — the same rule it applies to a signed-in
+ * player's fact_progress. So there is nothing to reset when the pool runs out:
+ * every clue is simply "met" and the oldest comes first.
+ *
+ * Three things the first version got wrong, which this one is built around:
+ *  - It was keyed by region + difficulty, so a clue met under "All regions" was
+ *    new under "Europe". The rotation is over clues, not filter combinations.
+ *  - A clue was recorded when the round *started*, so an abandoned round used
+ *    up its clues. It is recorded when the clue is answered (`markFactSeen`).
+ *  - Its "reset when exhausted" never ran, because the api padded a short round
+ *    with already-met clues and the length check could not see it.
+ *
+ * The two modes (#42) share the list: a clue met as multiple choice is met.
  */
-const STORAGE_KEY = 'cartomancer.seenFacts';
+const STORAGE_KEY = 'cartomancer.seenFacts.v2';
+/** The per-filter-combination store this replaced. */
+const LEGACY_KEY = 'cartomancer.seenFacts';
 
-interface SeenStore {
-  [filterKey: string]: number[];
-}
+export type SeenFacts = Record<string, number>;
 
-/**
- * Region and difficulty only: a clue you have met is met whichever way you
- * answered it, so the two modes (#42) share one rotation — as the signed-in
- * side already does, keying fact_progress by user and fact alone.
- */
-function filterKey(filters: Filters): string {
-  const r = filters.region || 'all';
-  const d = filters.difficulty || 'all';
-  return `${r}:${d}`;
-}
-
-function load(): SeenStore {
-  if (typeof window === 'undefined') return {};
+function read(key: string): unknown {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as SeenStore) : {};
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return {};
+    return null;
   }
 }
 
-function save(store: SeenStore): void {
-  if (typeof window === 'undefined') return;
+function write(store: SeenFacts): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
   } catch {
-    // Full localStorage is not worth breaking the quiz over.
+    // Full or blocked localStorage is not worth breaking the quiz over.
   }
 }
 
-export function getSeenFactIds(filters: Filters): number[] {
-  const store = load();
-  return store[filterKey(filters)] ?? [];
+/**
+ * Folds the old per-filter lists into the new shape, once. Those entries carry
+ * no times, so they go in as "met long ago": enough to keep them behind clues
+ * that were never met, without claiming an order nobody recorded. (They were
+ * recorded at round start, so some were never actually answered — the cost of
+ * leaving them out, replaying everything a returning guest has seen, is worse
+ * than treating a few unanswered ones as old.)
+ */
+function migrateLegacy(): SeenFacts {
+  const legacy = read(LEGACY_KEY);
+  const store: SeenFacts = {};
+  if (legacy && typeof legacy === 'object') {
+    for (const ids of Object.values(legacy as Record<string, unknown>)) {
+      if (!Array.isArray(ids)) continue;
+      for (const id of ids) {
+        if (typeof id === 'number') store[String(id)] = 0;
+      }
+    }
+  }
+  write(store);
+  try {
+    window.localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    // Harmless: the new key now exists, so this never runs again.
+  }
+  return store;
 }
 
-export function addSeenFactIds(filters: Filters, ids: number[]): void {
-  if (ids.length === 0) return;
-  const store = load();
-  const key = filterKey(filters);
-  const existing = store[key] ?? [];
-  const combined = [...new Set([...existing, ...ids])];
-  store[key] = combined;
-  save(store);
+export function getSeenFacts(): SeenFacts {
+  if (typeof window === 'undefined') return {};
+  const stored = read(STORAGE_KEY);
+  if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+    return stored as SeenFacts;
+  }
+  return migrateLegacy();
 }
 
-/** Resets the seen list for a filter combo (when the pool is exhausted). */
-export function resetSeenFacts(filters: Filters): void {
-  const store = load();
-  delete store[filterKey(filters)];
-  save(store);
+/** Records a clue as met now. Called when it is answered, not when it is shown. */
+export function markFactSeen(factId: number, at: number = Date.now()): void {
+  if (typeof window === 'undefined') return;
+  write({ ...getSeenFacts(), [String(factId)]: at });
 }

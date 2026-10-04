@@ -588,10 +588,25 @@ involves:
 - **Mode pickers.** Capitals, Flags and Fun facts each get a mode-select screen:
   two directions × two formats for Capitals, three cards for Flags, and one card
   per format for Fun facts. Fun facts is the only one that shows the question-
-  count chip, and the only one whose cards carry a start hook — its two modes
-  share one clue rotation, so the round that starts records what it drew (#42,
-  #49). Countries starts a recall round from `PlayPicker`, since the region chip
-  is its only input.
+  count chip, and the only one that sends a guest's clue list with the start
+  request (#42, #49). Countries starts a recall round from `PlayPicker`, since
+  the region chip is its only input.
+- **Fun-facts rotation (#70).** A clue that has been answered does not come back
+  until every clue matching the filters has been met once. The api orders the
+  matching clues strictly least-recently-met first (`pickClues`): never-met
+  clues, those of countries not met at all before those of countries met through
+  another clue, then met clues oldest first. A spent pool therefore restarts by
+  itself, with nothing to reset. "Met" is recorded **on answer**, never on
+  start, so an abandoned round consumes nothing: for a signed-in player in
+  `fact_progress` (one rotation for both modes), for a guest in one list per
+  browser — `localStorage` `{ factId: lastSeenMs }`, not per region and
+  difficulty — sent as `seenFacts` and ignored when signed in. At most one clue
+  per country is asked in a round (`session_answers` is keyed by country), so a
+  round is capped by the countries that have a matching clue and comes back
+  *short* rather than padded with repeats; the player is told ("Only 5 countries
+  have a clue matching these filters"). The tail of a cycle can still repeat a
+  met clue while an unmet one remains, but only when every remaining unmet clue
+  belongs to a country already in that round.
 - **Auth.js sessions are JWTs**, not database rows, because the api is a
   separate service that is handed the user id by the proxy. The adapter's
   `Session` table exists anyway so switching is a config change.

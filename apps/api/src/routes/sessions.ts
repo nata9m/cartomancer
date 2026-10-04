@@ -26,6 +26,7 @@ import {
   parseDifficulty,
   parseRegion,
   promptFor,
+  ensureFactProgress,
   recordFactProgress,
   resolveQuizType,
   selectCountryIds,
@@ -38,7 +39,16 @@ const startSessionSchema = z.object({
   region: z.string().optional(),
   difficulty: z.string().optional(),
   questionCount: z.union([z.number(), z.string()]).optional(),
-  excludeFactIds: z.array(z.number().int().positive()).max(300).optional(),
+  /**
+   * Guest rotation (#70): clue id → epoch ms it was last answered, one list per
+   * browser. Ignored for signed-in play, where fact_progress is the memory. The
+   * cap is generous next to a library of a few hundred clues and exists only so
+   * a request cannot be made arbitrarily large.
+   */
+  seenFacts: z
+    .record(z.string().regex(/^\d+$/), z.number().int().nonnegative())
+    .refine((seen) => Object.keys(seen).length <= 2000, 'seenFacts is too large')
+    .optional(),
 });
 
 const answerSchema = z.object({
@@ -104,7 +114,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
         userId,
         filters,
         limit: requestedCount,
-        excludeFactIds: body.excludeFactIds,
+        seenFacts: body.seenFacts,
       });
 
       if (selectedFacts.length === 0) {
@@ -297,6 +307,14 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       },
     });
     if (already) {
+      // The first call may have died after writing the answer and before the
+      // clue's rotation row (none of this is one transaction). Without this a
+      // retry would replay "answered" and the clue would stay unmet for good, to
+      // come straight back in the next round (#70). `ensure` rather than record:
+      // an old session's replay must not drag a clue's last-seen time backwards.
+      if (definition.category === 'trivia' && question.factId) {
+        await ensureFactProgress(app.prisma, userId, question.factId, already.answeredAt);
+      }
       const recorded = await app.prisma.progress.findUnique({
         where: {
           userId_countryId_quizTypeId: {

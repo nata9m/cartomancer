@@ -29,8 +29,7 @@ export function ModePicker({
   filters,
   showDifficulty = true,
   showQuestionCount = false,
-  excludeIdsForStart,
-  onStarted,
+  seenFactsForStart,
 }: {
   title: string;
   groups: ModeGroup[];
@@ -39,16 +38,11 @@ export function ModePicker({
   /** Fun facts lets the round be sized (#16); the other screens take the default. */
   showQuestionCount?: boolean;
   /**
-   * Clue ids to leave out of the next round, asked for at the moment of the tap
-   * so it reads whatever the last round stored. Only Fun facts has these: guest
-   * rotation lives in localStorage, and a signed-in player's is the api's job.
+   * The guest's clue-rotation list, asked for at the moment of the tap so it
+   * reads whatever the last answer stored. Only Fun facts has one: a signed-in
+   * player's rotation is the api's job (fact_progress).
    */
-  excludeIdsForStart?: () => number[];
-  /**
-   * What came back, so the caller can record it. `requested` is the count asked
-   * for, which is how a short round says the pool is exhausted.
-   */
-  onStarted?: (session: QuizSession, requested: number | undefined) => void;
+  seenFactsForStart?: () => Record<string, number>;
 }) {
   const { startQuiz, pendingKey, error } = useSessionStarter(filters);
 
@@ -59,10 +53,7 @@ export function ModePicker({
 
   async function start(mode: ModeGroup['modes'][number]): Promise<void> {
     const requested = mode.questionCount ?? chosenCount;
-    const session = await startQuiz(mode.quizTypeKey, requested, excludeIdsForStart?.());
-    if (session) {
-      onStarted?.(session, requested);
-    }
+    await startQuiz(mode.quizTypeKey, requested, seenFactsForStart?.());
   }
 
   return (
