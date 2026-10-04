@@ -228,12 +228,17 @@ export async function registerRecallRoutes(app: FastifyInstance): Promise<void> 
     }
     const { id } = request.params as { id: string };
     const session = await loadOwnedRecallSession(app.prisma, id, userId);
-    await app.prisma.sessionParticipant.update({
-      where: { sessionId_userId: { sessionId: session.id, userId } },
+    // Finishing twice is a retry or a race, not a second finish (#67): the round
+    // now ends by itself when the last country is named, so the automatic call
+    // and a tap on "I'm done", or a retried request (#58), can both arrive. The
+    // first one stamps the time; the rest find it set and change nothing, so the
+    // session is marked finished exactly once and keeps the moment it was.
+    await app.prisma.sessionParticipant.updateMany({
+      where: { sessionId: session.id, userId, finishedAt: null },
       data: { finishedAt: new Date() },
     });
-    await app.prisma.quizSession.update({
-      where: { id: session.id },
+    await app.prisma.quizSession.updateMany({
+      where: { id: session.id, status: { not: 'finished' } },
       data: { status: 'finished' },
     });
     return buildRecallResults(app.prisma, session.id, userId);

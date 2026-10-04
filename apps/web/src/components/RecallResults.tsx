@@ -151,6 +151,8 @@ export function RecallResults({ sessionId }: { sessionId: string }) {
   }
 
   const regionLabel = results.region === 'all' ? 'All regions' : results.region;
+  // Everything named: say so, and there is no "missed" list to show (#67).
+  const perfect = results.totalInRegion > 0 && results.recalled.length >= results.totalInRegion;
 
   return (
     <main className="app-shell">
@@ -159,7 +161,11 @@ export function RecallResults({ sessionId }: { sessionId: string }) {
         <div className="results-score">
           {results.recalled.length}/{results.totalInRegion}
         </div>
-        <div className="results-caption">recalled from memory</div>
+        {perfect ? (
+          <div className="results-perfect">Perfect — every country recalled 🎉</div>
+        ) : (
+          <div className="results-caption">recalled from memory</div>
+        )}
       </div>
 
       {results.recalled.length > 0 ? (

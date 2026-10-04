@@ -391,6 +391,18 @@ Enter key; both run the same match. A guess that names no country in the region
 is refused outright — the counter and the recalled list don't move — and a
 duplicate is called out rather than counted twice.
 
+**Recall finishes itself (#67).** Naming the last country in the region ends the
+round: the input locks, the counter turns green and says "All 44 countries of
+Europe!" for about a second, and the screen moves to the results, which for a
+full round read "Perfect — every country recalled" with no "missed" list. "I'm
+done" works as before and stays on screen (it is sticky) however long the list
+grows. Finishing is idempotent end to end: the screen guards it with a ref, and
+`POST /api/recall/:id/finish` stamps `finished_at` only if it is still unset, so
+the automatic call racing a tap, or a retried request (#58), leaves one finish
+at one moment. A round that is already complete when it loads is *not* finished
+on load — that would bounce anyone who pressed Back from the results straight
+back to them — it just offers "Show results".
+
 **Guest mode.** A guest has no `user_id`, and there is no synthetic user row.
 Starting a quiz returns the same question set with a `guest-…` id and writes
 nothing; answers are checked by stateless endpoints (`/api/answers/check`,
