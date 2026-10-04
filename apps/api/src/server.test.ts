@@ -13,6 +13,8 @@ import { getPrisma } from '@cartomancer/db';
 import { matchesAcceptedAnswer, normalizeAnswer } from '@cartomancer/shared';
 import { type ClueCandidate, pickClues } from './lib/quiz.js';
 import type { FastifyInstance } from 'fastify';
+import { loadSummary } from './lib/progress.js';
+import { requestTimeZone } from './timezone.js';
 import { loadEnv } from './env.js';
 import { buildServer } from './server.js';
 
@@ -1245,6 +1247,188 @@ describe('signed-in quiz session', () => {
       payload: { quizTypeKey: 'countries-recall' },
     });
     assert.equal(recallThroughQuiz.statusCode, 400);
+  });
+});
+
+/**
+ * The day streak is counted in the player's own days, not UTC's (#66).
+ *
+ * The web app never said where the player was, so every day was bucketed in UTC.
+ * For someone ahead of it, Wednesday 07:41 is still Tuesday in UTC: "today" was
+ * a day behind, Tuesday looked like today, and a missed Tuesday never broke the
+ * streak. These pin the boundary directly — `loadSummary` takes `now`, so the
+ * test chooses the instant instead of racing the clock — in zones on both sides
+ * of UTC, where the buggy and the correct answer differ.
+ */
+describe('day streak is counted in the player timezone (#66)', () => {
+  const EMAIL = 'tz-test@cartomancer.invalid';
+  let tzUserId: string;
+
+  before(async () => {
+    await prisma.user.deleteMany({ where: { email: EMAIL } });
+    tzUserId = (
+      await prisma.user.create({ data: { email: EMAIL, name: 'TZ Test', authProvider: 'google' } })
+    ).id;
+  });
+
+  after(async () => {
+    await prisma.user.deleteMany({ where: { email: EMAIL } });
+  });
+
+  /** Replaces the user's answers with one per instant, each on its own country. */
+  const answeredAt = async (instants: string[]) => {
+    await prisma.quizSession.deleteMany({ where: { createdBy: tzUserId } });
+    if (instants.length === 0) return;
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: 'capitals-c2cap-mc' } });
+    const countries = await prisma.country.findMany({ take: instants.length, orderBy: { id: 'asc' } });
+    const session = await prisma.quizSession.create({
+      data: {
+        quizTypeId: quizType.id,
+        questionCount: instants.length,
+        createdBy: tzUserId,
+        participants: { create: [{ userId: tzUserId }] },
+        questions: {
+          create: countries.map((country, index) => ({ sequence: index + 1, countryId: country.id })),
+        },
+      },
+    });
+    await prisma.sessionAnswer.createMany({
+      data: countries.map((country, index) => ({
+        sessionId: session.id,
+        userId: tzUserId,
+        countryId: country.id,
+        wasCorrect: true,
+        answeredAt: new Date(instants[index]!),
+      })),
+    });
+  };
+
+  const summaryAt = (now: string, zone?: string) =>
+    loadSummary(prisma, tzUserId, zone, new Date(now));
+
+  // 2026-09-28 is a Monday, so Wednesday is the 30th. Brisbane is UTC+10 all
+  // year (no DST), which keeps the arithmetic below honest.
+  it('UTC+10: a missed day breaks the streak on the morning after it', async () => {
+    // Played Monday, not Tuesday. Wednesday 07:41 in Brisbane is Tuesday 21:41 UTC.
+    await answeredAt(['2026-09-28T02:00:00Z']); // Monday 12:00 Brisbane
+    const now = '2026-09-29T21:41:00Z';
+
+    const local = await summaryAt(now, 'Australia/Brisbane');
+    assert.equal(local.dayStreak, 0, 'Tuesday was missed, so the streak is over');
+    // Monday filled, and the week is the one that contains Wednesday.
+    assert.deepEqual(local.weekActivity, [true, false, false, false, false, false, false]);
+
+    // What the player saw: UTC thinks it is still Tuesday, so Monday is "yesterday".
+    assert.equal((await summaryAt(now)).dayStreak, 1);
+  });
+
+  it('UTC+10: yesterday still counts until the end of the player’s own day', async () => {
+    await answeredAt(['2026-09-28T02:00:00Z', '2026-09-29T02:00:00Z']); // Mon, Tue (Brisbane)
+    const morning = await summaryAt('2026-09-29T21:41:00Z', 'Australia/Brisbane'); // Wed 07:41
+    assert.equal(morning.dayStreak, 2, 'not played yet today: the grace day, streak unchanged');
+    assert.deepEqual(morning.weekActivity, [true, true, false, false, false, false, false]);
+
+    // The same two answers a full local day later: Wednesday has now been missed too.
+    const nextMorning = await summaryAt('2026-09-30T21:41:00Z', 'Australia/Brisbane'); // Thu 07:41
+    assert.equal(nextMorning.dayStreak, 0);
+  });
+
+  it('an answer at 23:30 local counts towards that local day', async () => {
+    // Tuesday 23:30 in New York (EDT, UTC-4) is Wednesday 03:30 UTC.
+    await answeredAt(['2026-09-30T03:30:00Z']);
+    const now = '2026-09-30T13:00:00Z'; // Wednesday 09:00 New York
+
+    const local = await summaryAt(now, 'America/New_York');
+    assert.deepEqual(local.weekActivity, [false, true, false, false, false, false, false], 'Tuesday');
+    assert.equal(local.dayStreak, 1, 'played yesterday, not yet today');
+
+    const utc = await summaryAt(now);
+    assert.deepEqual(utc.weekActivity, [false, false, true, false, false, false, false], 'Wednesday');
+  });
+
+  it('UTC-4: just after UTC midnight it is still the previous local day', async () => {
+    // Played Monday only. 00:30 UTC on Wednesday is Tuesday 20:30 in New York, so
+    // Tuesday is "today" and not yet missed; UTC already calls it Wednesday and
+    // has written the streak off.
+    await answeredAt(['2026-09-28T14:00:00Z']); // Monday 10:00 New York
+    const now = '2026-09-30T00:30:00Z';
+
+    assert.equal((await summaryAt(now, 'America/New_York')).dayStreak, 1);
+    assert.equal((await summaryAt(now, 'UTC')).dayStreak, 0);
+  });
+
+  it('UTC players are unchanged around midnight', async () => {
+    await answeredAt(['2026-09-29T23:30:00Z']);
+    assert.equal((await summaryAt('2026-09-29T23:59:00Z', 'UTC')).dayStreak, 1, 'today');
+    assert.equal((await summaryAt('2026-09-30T00:01:00Z', 'UTC')).dayStreak, 1, 'yesterday, grace');
+    assert.equal((await summaryAt('2026-10-01T00:01:00Z', 'UTC')).dayStreak, 0, 'a day missed');
+  });
+
+  it('counts a streak of several local days, across a UTC date change in the middle', async () => {
+    // Three evenings in Sydney (UTC+10), each after 14:00 UTC — so each falls on
+    // the NEXT UTC date than the one the player lived it on.
+    await answeredAt(['2026-09-27T14:30:00Z', '2026-09-28T14:30:00Z', '2026-09-29T14:30:00Z']);
+    const now = '2026-09-30T00:00:00Z'; // Wednesday 10:00 in Brisbane
+    assert.equal((await summaryAt(now, 'Australia/Brisbane')).dayStreak, 3);
+  });
+
+  it('falls back to UTC for a zone it does not know, rather than failing', async () => {
+    await answeredAt(['2026-09-28T02:00:00Z']);
+    const now = '2026-09-29T21:41:00Z';
+    const expected = await summaryAt(now, 'UTC');
+    for (const bad of ['Not/AZone', '', "UTC'; DROP TABLE users;--", '../../etc/passwd']) {
+      assert.deepEqual(await summaryAt(now, bad), expected, JSON.stringify(bad));
+    }
+  });
+
+  describe('requestTimeZone', () => {
+    const request = (header?: string, tz?: unknown) =>
+      ({ headers: header === undefined ? {} : { 'x-cartomancer-timezone': header }, query: { tz } }) as never;
+
+    it('prefers the header, then ?tz=, then UTC', () => {
+      assert.equal(requestTimeZone(request('Australia/Sydney')), 'Australia/Sydney');
+      assert.equal(requestTimeZone(request(undefined, 'America/New_York')), 'America/New_York');
+      assert.equal(requestTimeZone(request('Asia/Tokyo', 'America/New_York')), 'Asia/Tokyo');
+      assert.equal(requestTimeZone(request()), 'UTC');
+    });
+
+    it('treats anything that is not a zone as UTC, and a bad header does not hide a good ?tz=', () => {
+      assert.equal(requestTimeZone(request('nonsense')), 'UTC');
+      assert.equal(requestTimeZone(request('nonsense', 'Europe/Paris')), 'Europe/Paris');
+      assert.equal(requestTimeZone(request(undefined, 42)), 'UTC');
+    });
+  });
+
+  it('the summary endpoint buckets days in the zone it is sent', async () => {
+    // Expected values come from a few lines of Intl in the test, not from the
+    // code under test, so an endpoint that ignored the header would disagree for
+    // any zone whose day boundary falls between the two readings.
+    const dayIn = (instant: Date, zone: string) =>
+      new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(instant);
+    const now = new Date();
+    const answeredInstant = new Date(now.getTime() - 30 * 3_600_000);
+    await answeredAt([answeredInstant.toISOString()]);
+
+    for (const zone of ['Pacific/Kiritimati', 'Etc/GMT+12', 'America/New_York', 'UTC']) {
+      const daysAgo =
+        (Date.parse(dayIn(now, zone)) - Date.parse(dayIn(answeredInstant, zone))) / 86_400_000;
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/summary',
+        headers: { 'x-cartomancer-user-id': tzUserId, 'x-cartomancer-timezone': zone },
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      // One answer: it is a streak of 1 if it was today or yesterday, else none.
+      assert.equal(response.json().summary.dayStreak, daysAgo <= 1 ? 1 : 0, `${zone}, ${daysAgo}d ago`);
+    }
+
+    // A zone that is not one is UTC, not a failed home screen.
+    const bad = await app.inject({
+      method: 'GET',
+      url: '/api/summary',
+      headers: { 'x-cartomancer-user-id': tzUserId, 'x-cartomancer-timezone': 'nonsense' },
+    });
+    assert.equal(bad.statusCode, 200);
   });
 });
 

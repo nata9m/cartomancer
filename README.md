@@ -401,8 +401,17 @@ endpoints refuse guests outright.
 
 **Streaks and stats** on the home screen are derived from `session_answers`
 rather than stored: a "day practised" is exactly "a day with at least one
-answer". Days are bucketed in the browser's timezone, which the web app passes
-to the api.
+answer". Days are bucketed in the player's timezone (#66), which the web app
+now really does pass — it used to say so and not do it, so every day was UTC's,
+and a missed day never broke the streak for anyone ahead of UTC. `TimeZoneCookie`
+(root layout) keeps the browser's IANA zone in a `tz` cookie on every load; the
+server-side helpers (`apiFetch` and the `/bff` proxy) forward it as
+`x-cartomancer-timezone` on **every** call rather than only on the ones that show
+a streak, and the api reads it with `requestTimeZone` wherever it buckets days
+(`/api/summary`, and finishing a quiz, whose results show the streak too). A bad
+or missing zone is UTC, never an error. On a first visit the page is rendered
+before the cookie exists, so it is rendered once in UTC and then re-requested
+once; a later load finds the cookie current and does nothing.
 
 **Adding a quiz type** is a data change: a row in `quiz_types` plus an entry in
 `QUIZ_TYPES` in `packages/shared/src/taxonomy.ts` describing its direction.

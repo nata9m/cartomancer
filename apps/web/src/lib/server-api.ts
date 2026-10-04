@@ -1,4 +1,5 @@
 import 'server-only';
+import { cookies } from 'next/headers';
 import { auth } from '@/auth';
 
 /**
@@ -7,6 +8,24 @@ import { auth } from '@/auth';
  * origin to be relative to during SSR, so this must be absolute.
  */
 export const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? 'http://localhost:8080';
+
+/** Set by `TimeZoneCookie` in the browser; read here and forwarded to the api. */
+export const TIMEZONE_COOKIE = 'tz';
+export const TIMEZONE_HEADER = 'x-cartomancer-timezone';
+
+/**
+ * The player's IANA timezone from the cookie the browser keeps, or null on a
+ * first visit (before the browser has said), which the api treats as UTC.
+ *
+ * A plausibility check only: the api validates the zone properly, and a cookie
+ * is the player's own to set, so the worst a forged one does is bucket their own
+ * days oddly. It is a header value, though, so it must not be able to carry
+ * anything but a zone's characters.
+ */
+export async function currentTimeZone(): Promise<string | null> {
+  const value = (await cookies()).get(TIMEZONE_COOKIE)?.value;
+  return value && /^[A-Za-z0-9_+\-/]{1,64}$/.test(value) ? value : null;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -37,6 +56,13 @@ export async function apiFetch<T>(
   }
   if (options.userId) {
     headers['x-cartomancer-user-id'] = options.userId;
+  }
+  // On every call, not only the ones that show a streak: which calls bucket days
+  // is the api's business and changes (finishing a quiz shows the streak too),
+  // and a call that forgot would be silently wrong for anyone not in UTC (#66).
+  const timeZone = await currentTimeZone();
+  if (timeZone) {
+    headers[TIMEZONE_HEADER] = timeZone;
   }
   if (options.body !== undefined) {
     headers['content-type'] = 'application/json';
