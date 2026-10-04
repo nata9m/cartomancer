@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { IconBrandApple, IconBrandGoogle, IconMap } from '@/components/icons';
+import { IconBrandApple, IconBrandGoogle, IconCircleCheck, IconMap } from '@/components/icons';
 import { continueAsGuest, signInWithProvider } from '@/app/actions';
 import { auth, enabledProviders, type SocialProviderId } from '@/auth';
 
@@ -10,7 +10,11 @@ const PROVIDER_ICONS: Record<SocialProviderId, React.ReactNode> = {
   apple: <IconBrandApple size={17} stroke={1.9} />,
 };
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (session?.user) {
     redirect('/');
@@ -21,6 +25,9 @@ export default async function LoginPage() {
   // offered, rather than being offered and failing.
   const providers = enabledProviders();
 
+  // Set by the delete-account action (#64), which has just signed the player out.
+  const deleted = (await searchParams).deleted === '1';
+
   return (
     <main className="app-shell app-shell--centered">
       <div className="app-mark">
@@ -30,6 +37,13 @@ export default async function LoginPage() {
         <h1 className="app-title">Cartomancer</h1>
         <p className="tagline">Learn capitals, countries, and flags — together</p>
       </div>
+
+      {deleted ? (
+        <div className="callout callout--success" role="status">
+          <IconCircleCheck className="callout-icon" size={16} stroke={1.9} />
+          <span>Your account has been deleted.</span>
+        </div>
+      ) : null}
 
       {providers.length > 0 ? (
         <div className="provider-buttons">

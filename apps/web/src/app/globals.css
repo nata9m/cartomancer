@@ -1593,3 +1593,68 @@ input.register-search {
     padding-top: 32px;
   }
 }
+
+/* ── Delete account (#64) ───────────────────────────────────────────────── */
+
+/* Apart from Log out, and quieter: it is a different kind of action. */
+.danger-zone {
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 0.5px solid var(--border);
+}
+
+.danger-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 0.5px solid var(--border-danger);
+  background: var(--bg-danger);
+}
+
+.danger-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-danger);
+}
+
+.danger-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-danger);
+}
+
+/* `input.account-input` is the base rule's (16px); on the danger tint it needs
+   its own surface so the field does not sink into the panel. */
+.danger-panel input.account-input {
+  /* `flex: 1` is for the name field's row; in this column it would collapse the
+     input to its text height, so it is reset here. */
+  flex: none;
+  width: 100%;
+  height: 42px;
+  background: var(--surface-2);
+}
+
+.danger-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* The one filled red button in the app: it is the irreversible one. */
+.button-danger-solid {
+  width: 100%;
+  background: var(--border-danger);
+  border-color: var(--border-danger);
+  color: #fff;
+  font-weight: 600;
+}
+
+.button-danger-solid:hover:not(:disabled) {
+  background: var(--border-danger);
+  opacity: 0.92;
+}

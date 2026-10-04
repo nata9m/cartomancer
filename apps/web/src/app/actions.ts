@@ -7,6 +7,7 @@ import { displayNameProblem, type UserProfile } from '@cartomancer/shared';
 import { isProviderEnabled, signIn, signOut, type SocialProviderId } from '@/auth';
 import { GUEST_COOKIE } from '@/lib/guest';
 import type { NameFormState } from '@/lib/profile';
+import { collectAppleTokens, revokeAppleTokens } from '@/lib/account-deletion';
 import { ApiError, apiFetch, currentUserId } from '@/lib/server-api';
 
 /** "Skip for now": remembers the choice and shows the guest home screen. */
@@ -82,4 +83,54 @@ export async function updateDisplayName(
     }
     return { status: 'error', message: 'Could not save that. Check your connection and try again.' };
   }
+}
+
+/**
+ * Permanently deletes the signed-in player's account (#64), then signs them out.
+ *
+ * Order, and why:
+ *  1. Read the Apple tokens. They are in the `accounts` row the delete removes,
+ *     so this is the last chance to find them.
+ *  2. Delete through the api, which does it in one transaction. If that fails,
+ *     nothing has happened — the account is intact, Apple has not been told
+ *     anything, and the player is told so and can try again.
+ *  3. Only then revoke with Apple, best-effort (`revokeAppleTokens` never throws).
+ *     Revoking first would leave a player whose delete failed with an account
+ *     whose Apple authorisation was already withdrawn.
+ *  4. Sign out, which clears the session cookie, and send them to /login with a
+ *     notice. A JWT session has no row to remove — the cookie is the whole of it.
+ *
+ * Returns only on failure; success redirects. `confirmation` is re-checked here
+ * as well as on the screen, and the api requires it again in its own terms.
+ */
+export async function deleteAccount(confirmation: string): Promise<{ error: string } | undefined> {
+  const userId = await currentUserId();
+  if (!userId) {
+    redirect('/login');
+  }
+  if (confirmation.trim().toUpperCase() !== 'DELETE') {
+    return { error: 'Type DELETE to confirm.' };
+  }
+
+  let appleTokens: Awaited<ReturnType<typeof collectAppleTokens>> = [];
+  try {
+    appleTokens = await collectAppleTokens(userId);
+  } catch {
+    // Not being able to read them must not stop the deletion; revocation is
+    // best-effort by design.
+    console.warn('apple revocation skipped: could not read the stored tokens');
+  }
+
+  try {
+    await apiFetch('/api/me', { method: 'DELETE', body: { confirm: 'DELETE' }, userId });
+  } catch {
+    return { error: 'Could not delete your account. Nothing was deleted — try again.' };
+  }
+
+  await revokeAppleTokens(appleTokens);
+
+  const store = await cookies();
+  store.delete(GUEST_COOKIE);
+  revalidatePath('/');
+  await signOut({ redirectTo: '/login?deleted=1' });
 }

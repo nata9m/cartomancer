@@ -8,6 +8,7 @@
  */
 import 'dotenv/config';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 import { getPrisma } from '@cartomancer/db';
 import {
@@ -2123,6 +2124,305 @@ describe('account profile (#61)', () => {
       assert.ok(displayNameProblem('a\u0000b'));
       assert.equal(displayNameProblem('x'.repeat(DISPLAY_NAME_MAX_LENGTH)), null);
     });
+  });
+});
+
+/**
+ * Deleting an account removes the player and everything that is theirs (#64).
+ *
+ * The cascades do most of it, and the first thing these tests do is prove that
+ * by looking at every table that can hold a player rather than at the one the
+ * code happens to touch. The rest is what the cascades cannot reach: the quiz
+ * sessions the player made, which `SET NULL` would otherwise leave behind, and
+ * `verification_tokens`, whose email has no foreign key at all.
+ */
+describe('deleting an account (#64)', () => {
+  const future = () => new Date(Date.now() + 86_400_000);
+  const created: string[] = [];
+
+  after(async () => {
+    await prisma.verificationToken.deleteMany({
+      where: { identifier: { in: created.map((email) => email.toUpperCase()) } },
+    });
+    await prisma.user.deleteMany({ where: { email: { in: created } } });
+  });
+
+  interface Player {
+    id: string;
+    email: string;
+    /** Every quiz session this player made or took part in. */
+    sessionIds: string[];
+  }
+
+  const as = (player: Pick<Player, 'id'>) => ({ 'x-cartomancer-user-id': player.id });
+
+  /** A player with a row in every table that can hold one. */
+  const makePlayer = async (label: string): Promise<Player> => {
+    const email = `delete-${label}-${randomUUID().slice(0, 8)}@cartomancer.invalid`;
+    created.push(email);
+    const user = await prisma.user.create({
+      data: { email, name: `Delete ${label}`, authProvider: 'apple', image: 'https://example.invalid/a.png' },
+    });
+    await prisma.account.create({
+      data: {
+        userId: user.id,
+        type: 'oauth',
+        provider: 'apple',
+        providerAccountId: randomUUID(),
+        refresh_token: 'refresh-token',
+        access_token: 'access-token',
+        id_token: 'a.jwt.carrying-the-email',
+      },
+    });
+    await prisma.session.create({
+      data: { sessionToken: randomUUID(), userId: user.id, expires: future() },
+    });
+    // A different case on purpose: the email is matched without regard to it.
+    await prisma.verificationToken.create({
+      data: { identifier: email.toUpperCase(), token: randomUUID(), expires: future() },
+    });
+
+    const player: Player = { id: user.id, email, sessionIds: [] };
+
+    // A quiz session answered through the api: answer, progress, score.
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: 'capitals-c2cap-type' } });
+    const countries = await prisma.country.findMany({ take: 3, orderBy: { id: 'asc' } });
+    const quiz = await prisma.quizSession.create({
+      data: {
+        quizTypeId: quizType.id,
+        questionCount: countries.length,
+        createdBy: user.id,
+        participants: { create: [{ userId: user.id }] },
+        questions: { create: countries.map((c, i) => ({ sequence: i + 1, countryId: c.id })) },
+      },
+    });
+    player.sessionIds.push(quiz.id);
+    for (const [index, country] of countries.entries()) {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/sessions/${quiz.id}/answers`,
+        headers: as(player),
+        payload: { sequence: index + 1, answer: country.capital },
+      });
+      assert.equal(response.statusCode, 200, response.body);
+    }
+
+    // A trivia session, so the clue rotation has a row for this player too.
+    const fact = await prisma.countryFact.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const triviaType = await prisma.quizType.findUniqueOrThrow({ where: { key: 'trivia-fact2c-type' } });
+    const trivia = await prisma.quizSession.create({
+      data: {
+        quizTypeId: triviaType.id,
+        questionCount: 1,
+        createdBy: user.id,
+        participants: { create: [{ userId: user.id }] },
+        questions: { create: [{ sequence: 1, countryId: fact.countryId, factId: fact.id }] },
+      },
+    });
+    player.sessionIds.push(trivia.id);
+    const country = await prisma.country.findUniqueOrThrow({ where: { id: fact.countryId } });
+    const answered = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${trivia.id}/answers`,
+      headers: as(player),
+      payload: { sequence: 1, answer: country.name },
+    });
+    assert.equal(answered.statusCode, 200, answered.body);
+
+    // A recall round.
+    const recall = (
+      await app.inject({ method: 'POST', url: '/api/recall', headers: as(player), payload: { region: 'Oceania' } })
+    ).json();
+    player.sessionIds.push(recall.id);
+    for (const name of ['Fiji', 'Samoa']) {
+      await app.inject({
+        method: 'POST',
+        url: `/api/recall/${recall.id}/guesses`,
+        headers: as(player),
+        payload: { guess: name },
+      });
+    }
+    return player;
+  };
+
+  /** Every place a player can be held, by user id — and the email table beside them. */
+  const footprint = async (player: Pick<Player, 'id' | 'email'>) => ({
+    users: await prisma.user.count({ where: { id: player.id } }),
+    accounts: await prisma.account.count({ where: { userId: player.id } }),
+    authSessions: await prisma.session.count({ where: { userId: player.id } }),
+    progress: await prisma.progress.count({ where: { userId: player.id } }),
+    factProgress: await prisma.factProgress.count({ where: { userId: player.id } }),
+    participations: await prisma.sessionParticipant.count({ where: { userId: player.id } }),
+    answers: await prisma.sessionAnswer.count({ where: { userId: player.id } }),
+    createdQuizzes: await prisma.quizSession.count({ where: { createdBy: player.id } }),
+    verificationTokens: await prisma.verificationToken.count({
+      where: { identifier: player.email.toUpperCase() },
+    }),
+  });
+
+  const remove = (player: Pick<Player, 'id'>, payload: unknown = { confirm: 'DELETE' }) =>
+    app.inject({ method: 'DELETE', url: '/api/me', headers: as(player), payload: payload as never });
+
+  it('removes the player and every row that refers to them', async () => {
+    const player = await makePlayer('everything');
+    const before = await footprint(player);
+    // Every one of these is something the test is about to claim is gone.
+    for (const [table, count] of Object.entries(before)) {
+      assert.ok(count > 0, `the fixture has no ${table} row, so removing it proves nothing`);
+    }
+
+    const response = await remove(player);
+    assert.equal(response.statusCode, 204, response.body);
+    assert.equal(response.body, '', 'no body');
+
+    assert.deepEqual(await footprint(player), {
+      users: 0,
+      accounts: 0,
+      authSessions: 0,
+      progress: 0,
+      factProgress: 0,
+      participations: 0,
+      answers: 0,
+      createdQuizzes: 0,
+      verificationTokens: 0,
+    });
+    assert.equal(
+      await prisma.quizSession.count({ where: { id: { in: player.sessionIds } } }),
+      0,
+      'their quiz sessions are deleted, not left behind as anonymous rows',
+    );
+    assert.equal(
+      await prisma.sessionQuestion.count({ where: { sessionId: { in: player.sessionIds } } }),
+      0,
+    );
+  });
+
+  it('leaves every other player, and a session someone else shared, as it was', async () => {
+    const leaving = await makePlayer('leaving');
+    const staying = await makePlayer('staying');
+    const stayingBefore = await footprint(staying);
+
+    // A session the leaving player made and the staying player took part in: it
+    // is that player's history too, so it stays — minus the one who left.
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: 'capitals-c2cap-type' } });
+    const country = await prisma.country.findFirstOrThrow({ orderBy: { id: 'desc' } });
+    const shared = await prisma.quizSession.create({
+      data: {
+        quizTypeId: quizType.id,
+        questionCount: 1,
+        createdBy: leaving.id,
+        participants: { create: [{ userId: leaving.id }, { userId: staying.id }] },
+        questions: { create: [{ sequence: 1, countryId: country.id }] },
+      },
+    });
+    await prisma.sessionAnswer.createMany({
+      data: [leaving.id, staying.id].map((userId) => ({
+        sessionId: shared.id,
+        userId,
+        countryId: country.id,
+        wasCorrect: true,
+      })),
+    });
+    const stayingWithShared = await footprint(staying);
+
+    assert.equal((await remove(leaving)).statusCode, 204);
+
+    assert.deepEqual(await footprint(staying), stayingWithShared, 'the other player lost nothing');
+    assert.ok(stayingWithShared.answers > stayingBefore.answers);
+    const kept = await prisma.quizSession.findUniqueOrThrow({
+      where: { id: shared.id },
+      include: { participants: true, answers: true },
+    });
+    assert.equal(kept.createdBy, null, 'the creator is anonymised');
+    assert.deepEqual(kept.participants.map((p) => p.userId), [staying.id]);
+    assert.deepEqual(kept.answers.map((a) => a.userId), [staying.id]);
+    assert.equal(await prisma.user.count({ where: { id: staying.id } }), 1);
+
+    await prisma.quizSession.delete({ where: { id: shared.id } });
+  });
+
+  it('refuses a delete that does not carry the confirmation, and touches nothing', async () => {
+    const player = await makePlayer('unconfirmed');
+    const before = await footprint(player);
+    // No body at all goes straight to inject: `remove`'s default would fill in
+    // the very confirmation this case is about leaving out.
+    const bare = await app.inject({ method: 'DELETE', url: '/api/me', headers: as(player) });
+    assert.equal(bare.statusCode, 400, `no body: ${bare.body}`);
+    for (const [label, payload] of [
+      ['empty object', {}],
+      ['wrong word', { confirm: 'delete' }],
+      ['the email instead', { confirm: player.email }],
+      ['empty string', { confirm: '' }],
+      ['true', { confirm: true }],
+      ['extra keys', { confirm: 'DELETE', everything: true }],
+    ] as [string, unknown][]) {
+      const response = await remove(player, payload);
+      assert.equal(response.statusCode, 400, `${label}: ${response.body}`);
+    }
+    assert.deepEqual(await footprint(player), before);
+  });
+
+  it('is for signed-in players only', async () => {
+    const response = await app.inject({ method: 'DELETE', url: '/api/me', payload: { confirm: 'DELETE' } });
+    assert.equal(response.statusCode, 403);
+  });
+
+  it('can only ever delete the caller', async () => {
+    const caller = await makePlayer('caller');
+    const other = await makePlayer('other');
+    const otherBefore = await footprint(other);
+    // Nothing in the request names an id; the one that counts is the actor's.
+    assert.equal((await remove(caller)).statusCode, 204);
+    assert.deepEqual(await footprint(other), otherBefore);
+  });
+
+  it('a repeat of a delete that already happened is still a success', async () => {
+    const player = await makePlayer('twice');
+    assert.equal((await remove(player)).statusCode, 204);
+    // The reply to the first may never have arrived (#58); the account is gone,
+    // which is what was asked for.
+    assert.equal((await remove(player)).statusCode, 204);
+    const [a, b] = await Promise.all([remove(player), remove(player)]);
+    assert.equal(a.statusCode, 204);
+    assert.equal(b.statusCode, 204);
+    const profile = await app.inject({ method: 'GET', url: '/api/me', headers: as(player) });
+    assert.equal(profile.statusCode, 404, 'the profile is gone with it');
+  });
+
+  it('two deletes at once leave nothing and fail neither', async () => {
+    const player = await makePlayer('racing');
+    const responses = await Promise.all([remove(player), remove(player), remove(player)]);
+    for (const response of responses) {
+      assert.equal(response.statusCode, 204, response.body);
+    }
+    assert.equal(Object.values(await footprint(player)).reduce((a, b) => a + b, 0), 0);
+  });
+
+  it('is all or nothing: a failure part-way through deletes nothing', async () => {
+    const player = await makePlayer('rollback');
+    const before = await footprint(player);
+    // The last step of the transaction is deleting the user. Block exactly that,
+    // so every earlier step — the sessions, the tokens — has already run.
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION tmp_block_user_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF OLD.email = '${player.email}' THEN RAISE EXCEPTION 'blocked for test'; END IF;
+        RETURN OLD;
+      END $$`);
+    await prisma.$executeRawUnsafe(
+      'CREATE TRIGGER tmp_block_user_delete BEFORE DELETE ON users FOR EACH ROW EXECUTE FUNCTION tmp_block_user_delete()',
+    );
+    try {
+      const failed = await remove(player);
+      assert.equal(failed.statusCode, 500);
+      assert.deepEqual(await footprint(player), before, 'the sessions and tokens came back with it');
+      assert.equal(await prisma.quizSession.count({ where: { id: { in: player.sessionIds } } }), player.sessionIds.length);
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER tmp_block_user_delete ON users');
+      await prisma.$executeRawUnsafe('DROP FUNCTION tmp_block_user_delete()');
+    }
+    assert.equal((await remove(player)).statusCode, 204, 'and the retry then works');
+    assert.equal(Object.values(await footprint(player)).reduce((a, b) => a + b, 0), 0);
   });
 });
 

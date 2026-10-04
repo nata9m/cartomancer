@@ -6,6 +6,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { forbidden, notFound } from '../errors.js';
+import { deleteAccount } from '../lib/account.js';
 
 /**
  * `name` is trimmed here, then judged by the same rule the account form uses.
@@ -30,6 +31,15 @@ const updateSchema = z
       .nullable(),
   })
   .strict();
+
+/**
+ * The confirmation is required here as well as on the screen (#64): the form
+ * makes the player type it, and this is what makes a stray request — a script, a
+ * double-submitted form, a client that forgot — unable to wipe an account. Exact
+ * and case-sensitive, because it is the server's check; the form accepts any
+ * casing and sends this.
+ */
+const deleteSchema = z.object({ confirm: z.literal('DELETE') }).strict();
 
 export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
   async function loadProfile(userId: string): Promise<UserProfile> {
@@ -77,5 +87,24 @@ export async function registerMeRoutes(app: FastifyInstance): Promise<void> {
       throw notFound('No such user');
     }
     return loadProfile(userId);
+  });
+
+  /**
+   * Permanently deletes the signed-in player's account and everything that is
+   * theirs (see `deleteAccount`). 204 with no body.
+   *
+   * Idempotent: when the account is already gone it is still a 204, because a
+   * retry of a request whose reply was lost should not turn "it worked" into an
+   * error (#58). That cannot delete anything it should not: the id comes from
+   * the actor, never from the request.
+   */
+  app.delete('/api/me', async (request, reply) => {
+    const { userId } = request.actor;
+    if (userId === null) {
+      throw forbidden('Guests have no account');
+    }
+    deleteSchema.parse(request.body ?? {});
+    await deleteAccount(app.prisma, userId);
+    return reply.code(204).send();
   });
 }
