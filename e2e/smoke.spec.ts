@@ -136,3 +136,52 @@ test('a guest has no account page: it sends them to sign in', async ({ page }) =
   await page.goto('/account');
   await expect(page).toHaveURL(/\/login$/);
 });
+
+test('quiz screens are accessible: progress bar, announced reveal, focus on Next (#56)', async ({
+  page,
+}) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Capitals/ }).click();
+  await page.getByRole('button', { name: /Pick the capital city of the country shown/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+
+  const bar = page.getByRole('progressbar', { name: 'Quiz progress' });
+  await expect(bar).toHaveAttribute('aria-valuenow', '0');
+  await expect(bar).toHaveAttribute('aria-valuemin', '0');
+  const total = await bar.getAttribute('aria-valuemax');
+  expect(Number(total)).toBeGreaterThan(0);
+
+  const live = page.getByRole('status');
+  await expect(live).toHaveText('');
+  await page.locator('.option').first().click();
+
+  await expect(live).toHaveText(/^(Correct, |Wrong\. The answer is ).+/);
+  await expect(bar).toHaveAttribute('aria-valuenow', '1');
+  await expect(bar).toHaveAttribute('aria-valuetext', `1 of ${total} answered`);
+  await expect(page.getByRole('button', { name: /^(Next|See results)$/ })).toBeFocused();
+
+  if (Number(total) > 1) {
+    await page.keyboard.press('Enter');
+    await expect(live).toHaveText('');
+    await expect(page.locator('.prompt')).toBeFocused();
+  }
+});
+
+test('reduced motion turns every quiz animation off (#56)', async ({ page }) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Capitals/ }).click();
+  await page.getByRole('button', { name: /Pick the capital city of the country shown/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+
+  const animationOf = async () => {
+    await page.locator('.option').first().click();
+    return page.locator('.option--correct').evaluate((el) => getComputedStyle(el).animationName);
+  };
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await animationOf()).toBe('none');
+
+  await page.getByRole('button', { name: /^(Next|See results)$/ }).click();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  expect(await animationOf()).toBe('option-pop');
+});

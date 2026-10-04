@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { matchesAcceptedAnswer } from '@cartomancer/shared';
 import type { AnswerResult, QuizQuestion, QuizSession } from '@cartomancer/shared';
 import { Flag } from './Flag';
-import { IconArrowRight, IconBulb, IconCheck, IconX } from './icons';
+import { IconArrowRight, IconBulb, IconCheck, IconSparkles, IconX } from './icons';
 import {
   checkAnswerAsGuest,
   finishQuizSession,
@@ -20,6 +20,8 @@ import {
   saveGuestQuiz,
   type GuestAnswer,
 } from '@/lib/guest-store';
+import { haptic, hapticFor } from '@/lib/haptics';
+import { revealAnnouncement } from '@/lib/reveal';
 import { getRoundNote } from '@/lib/round-note';
 import { markFactSeen } from '@/lib/seen-facts';
 
@@ -69,6 +71,9 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   const [busy, setBusy] = useState(false);
   const askedAt = useRef<number>(Date.now());
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const nextRef = useRef<HTMLButtonElement | null>(null);
+  const promptRef = useRef<HTMLDivElement | null>(null);
+  const [announcement, setAnnouncement] = useState('');
   /** What Try again does: whichever call just failed, with its arguments. */
   const retry = useRef<(() => Promise<void>) | null>(null);
   /**
@@ -124,8 +129,21 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
     autoAccepted.current = null;
     if (session?.quizType.format === 'type_in') {
       inputRef.current?.focus();
+    } else if (index > 0) {
+      // The Next button that held focus is gone; without this, focus falls back
+      // to the top of the page and a keyboard user starts again from the close
+      // button. The first question is skipped so the page load keeps its default.
+      promptRef.current?.focus();
     }
   }, [index, session?.quizType.format]);
+
+  // Revealing the answer moves focus to Next, so the keyboard path through a
+  // round is Enter, Enter, Enter, and announces the outcome for screen readers.
+  useEffect(() => {
+    if (phase === 'revealed') {
+      nextRef.current?.focus();
+    }
+  }, [phase]);
 
   // The whole question set is already here, so the time the player spends on
   // this question is free bandwidth for the next one's artwork. One ahead, not
@@ -166,6 +184,8 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
 
         setResult(outcome);
         setPhase('revealed');
+        setAnnouncement(revealAnnouncement(outcome));
+        haptic(hapticFor(outcome));
         setAnsweredCount((count) => count + 1);
 
         if (isGuest) {
@@ -275,6 +295,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
       setTyped('');
       setChosenLabel(null);
       setResult(null);
+      setAnnouncement('');
       setSubmitError(null);
       return;
     }
@@ -322,7 +343,15 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
         <Link className="icon-button" href="/" aria-label="Leave quiz">
           <IconX size={19} stroke={1.9} />
         </Link>
-        <div className="progress-track">
+        <div
+          className="progress-track"
+          role="progressbar"
+          aria-label="Quiz progress"
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={answeredCount}
+          aria-valuetext={`${answeredCount} of ${total} answered`}
+        >
           <div className="progress-fill" style={{ width: `${progress}%` }} />
         </div>
         <span className="progress-counter">
@@ -330,17 +359,21 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
         </span>
       </div>
 
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </div>
+
       {index === 0 && phase === 'answering' && getRoundNote(session.id) ? (
         <p className="inline-note">{getRoundNote(session.id)}</p>
       ) : null}
 
       {category === 'trivia' ? (
-        <div className="clue-card">
+        <div className="clue-card" ref={promptRef} tabIndex={-1}>
           <IconBulb size={18} stroke={1.8} className="clue-icon" />
           <span>{question.promptText}</span>
         </div>
       ) : (
-        <div className="prompt">
+        <div className="prompt" ref={promptRef} tabIndex={-1}>
           <span className="prompt-label">{question.promptLabel}</span>
           {question.promptIsoCode ? (
             <span className="prompt-flag">
@@ -498,7 +531,8 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
           ) : null}
 
           {result.newlyLearned ? (
-            <p className="inline-note">
+            <p className="learned-note">
+              <IconSparkles size={16} stroke={1.9} aria-hidden="true" />
               {result.correctCountryName} is now learned — {result.currentStreak} in a row
             </p>
           ) : null}
@@ -506,6 +540,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
           <button
             type="button"
             className="button-primary"
+            ref={nextRef}
             onClick={() => void next()}
             disabled={busy}
           >
