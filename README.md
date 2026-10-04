@@ -411,6 +411,25 @@ streak would be. Session state lives in the browser's `sessionStorage`, so a
 guest's play is not merely unpersisted, it is never sent. The persisted
 endpoints refuse guests outright.
 
+**Account (#61).** Signed in, the home screen has a round avatar (or initial)
+button at the top right; it opens `/account`, which shows the picture, display
+name, email, provider and member-since date, the same streak and learned counts
+as the home screen, and **Log out**. Guests see none of it — no button, and
+`/account` sends them to `/login`, as it does anyone whose session has ended.
+Only the display name is editable: `GET /api/me` reads the profile and
+`PATCH /api/me` takes `{ name }` and nothing else (a body that names `email` or
+`authProvider` is a 400, not a silent no-op). One rule, `displayNameProblem` in
+`@cartomancer/shared`, decides what a name may be — 1–50 characters counted as
+the player sees them (fifty emoji are fine), no control or invisible
+characters — so the form can say so before a request goes out and the api
+enforces the same thing. A blank name is stored as null and every screen then
+uses the part of the email before the `@`. The name is never kept in the Auth.js
+JWT; every screen reads it from `/api/me`, so there is no stale copy to refresh
+after saving. The provider's picture is shown with `no-referrer` and falls back
+to the initial if it fails — including when it failed before the page hydrated,
+which an `onError` handler alone misses. Not built, deliberately: deleting an
+account (it removes progress, and wants a confirmation flow of its own).
+
 **Streaks and stats** on the home screen are derived from `session_answers`
 rather than stored: a "day practised" is exactly "a day with at least one
 answer". Days are bucketed in the player's timezone (#66), which the web app

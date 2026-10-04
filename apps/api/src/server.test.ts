@@ -10,7 +10,12 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { getPrisma } from '@cartomancer/db';
-import { matchesAcceptedAnswer, normalizeAnswer } from '@cartomancer/shared';
+import {
+  DISPLAY_NAME_MAX_LENGTH,
+  displayNameProblem,
+  matchesAcceptedAnswer,
+  normalizeAnswer,
+} from '@cartomancer/shared';
 import { type ClueCandidate, pickClues } from './lib/quiz.js';
 import type { FastifyInstance } from 'fastify';
 import { loadSummary } from './lib/progress.js';
@@ -1616,6 +1621,150 @@ describe('active recall', () => {
     assert.equal(dup.json().duplicate, true);
     assert.equal(dup.json().accepted, false);
     assert.equal(await prisma.quizSession.count(), sessionsBefore);
+  });
+});
+
+/**
+ * The account page's two endpoints (#61): read the signed-in player's profile,
+ * and change the one thing about it that is theirs to change — the name.
+ */
+describe('account profile (#61)', () => {
+  const EMAIL = 'profile-test@cartomancer.invalid';
+  let profileUserId: string;
+  const as = () => ({ 'x-cartomancer-user-id': profileUserId });
+
+  before(async () => {
+    await prisma.user.deleteMany({ where: { email: EMAIL } });
+    profileUserId = (
+      await prisma.user.create({
+        data: {
+          email: EMAIL,
+          name: 'Provider Name',
+          image: 'https://example.invalid/avatar.png',
+          authProvider: 'google',
+        },
+      })
+    ).id;
+  });
+
+  after(async () => {
+    await prisma.user.deleteMany({ where: { email: EMAIL } });
+  });
+
+  const get = () => app.inject({ method: 'GET', url: '/api/me', headers: as() });
+  const patch = (payload: unknown) =>
+    app.inject({ method: 'PATCH', url: '/api/me', headers: as(), payload: payload as never });
+
+  it('returns what is known about the player', async () => {
+    const response = await get();
+    assert.equal(response.statusCode, 200, response.body);
+    const profile = response.json();
+    assert.equal(profile.email, EMAIL);
+    assert.equal(profile.name, 'Provider Name');
+    assert.equal(profile.image, 'https://example.invalid/avatar.png');
+    assert.equal(profile.authProvider, 'google');
+    assert.match(profile.createdAt, /^\d{4}-\d{2}-\d{2}T/, 'an ISO timestamp');
+    assert.deepEqual(
+      Object.keys(profile).sort(),
+      ['authProvider', 'createdAt', 'email', 'image', 'name'],
+      'nothing else about a player leaves the api here',
+    );
+  });
+
+  it('guests have no account', async () => {
+    for (const method of ['GET', 'PATCH'] as const) {
+      const response = await app.inject({
+        method,
+        url: '/api/me',
+        ...(method === 'PATCH' ? { payload: { name: 'Nobody' } } : {}),
+      });
+      assert.equal(response.statusCode, 403, method);
+    }
+  });
+
+  it('changes the name, trims it, and the change persists', async () => {
+    const response = await patch({ name: '  Natalia  ' });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().name, 'Natalia');
+    assert.equal((await get()).json().name, 'Natalia', 'a later read sees it');
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: profileUserId } })).name, 'Natalia');
+  });
+
+  it('null clears the name', async () => {
+    await patch({ name: 'Someone' });
+    const response = await patch({ name: null });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().name, null);
+    assert.equal((await get()).json().name, null);
+  });
+
+  it('accepts a name at the limit, counted in characters rather than code units', async () => {
+    const atLimit = 'é'.repeat(DISPLAY_NAME_MAX_LENGTH);
+    assert.equal((await patch({ name: atLimit })).statusCode, 200);
+    // Fifty emoji are a hundred UTF-16 code units: refusing them would cut the
+    // limit in half for exactly the names that look shortest.
+    const emoji = '🌍'.repeat(DISPLAY_NAME_MAX_LENGTH);
+    const response = await patch({ name: emoji });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().name, emoji);
+  });
+
+  it('refuses what is not a usable name, and changes nothing', async () => {
+    await patch({ name: 'Kept' });
+    const bad: [string, unknown][] = [
+      ['empty', { name: '' }],
+      ['only spaces', { name: '    ' }],
+      ['too long', { name: 'x'.repeat(DISPLAY_NAME_MAX_LENGTH + 1) }],
+      ['a newline', { name: 'two\nlines' }],
+      ['a tab', { name: 'tab\there' }],
+      ['invisible only', { name: '​​' }],
+      ['not a string', { name: 42 }],
+      ['no name at all', {}],
+    ];
+    for (const [label, payload] of bad) {
+      const response = await patch(payload);
+      assert.equal(response.statusCode, 400, `${label}: ${response.body}`);
+    }
+    assert.equal((await get()).json().name, 'Kept');
+  });
+
+  it('only the name is writable', async () => {
+    const before = (await get()).json();
+    for (const extra of [
+      { name: 'Same', email: 'someone-else@example.invalid' },
+      { name: 'Same', authProvider: 'apple' },
+      { name: 'Same', image: 'https://example.invalid/other.png' },
+      { name: 'Same', createdAt: '2000-01-01T00:00:00Z' },
+    ]) {
+      const response = await patch(extra);
+      assert.equal(response.statusCode, 400, JSON.stringify(extra));
+    }
+    const after = (await get()).json();
+    assert.deepEqual({ ...after, name: null }, { ...before, name: null });
+    assert.equal(after.name, before.name, 'a rejected body does not change the name either');
+  });
+
+  it('acts on the caller and never on someone else', async () => {
+    const other = await prisma.user.create({
+      data: { email: 'profile-other@cartomancer.invalid', name: 'Other', authProvider: 'google' },
+    });
+    try {
+      await patch({ name: 'Mine' });
+      assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: other.id } })).name, 'Other');
+    } finally {
+      await prisma.user.delete({ where: { id: other.id } });
+    }
+  });
+
+  describe('displayNameProblem', () => {
+    it('is the rule the form and the api share', () => {
+      assert.equal(displayNameProblem('Natalia'), null);
+      assert.equal(displayNameProblem('Zoë 🌍'), null);
+      assert.ok(displayNameProblem(''));
+      assert.ok(displayNameProblem('x'.repeat(DISPLAY_NAME_MAX_LENGTH + 1)));
+      assert.ok(displayNameProblem('a\u0000b'));
+      assert.equal(displayNameProblem('x'.repeat(DISPLAY_NAME_MAX_LENGTH)), null);
+    });
   });
 });
 

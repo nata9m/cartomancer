@@ -266,6 +266,31 @@ export interface CountryDetail {
   languages: string[];
 }
 
+/**
+ * What the account page knows about the signed-in player (#61), from
+ * `GET /api/me`. `name` is the one thing a player may change; the rest is the
+ * identity the provider vouched for.
+ *
+ * `name` is null when the player has none — a provider that supplied none, or
+ * one cleared back to nothing — and the screens then fall back to the local part
+ * of the email rather than showing a blank.
+ */
+export interface UserProfile {
+  email: string;
+  name: string | null;
+  /** The provider's avatar URL; absent for providers that have none. */
+  image: string | null;
+  /** `google` | `apple`, or `pending` for the instant before the account links. */
+  authProvider: string;
+  /** ISO timestamp; null only for a row created before the column was filled. */
+  createdAt: string | null;
+}
+
+/** `PATCH /api/me`. Only `name` is writable; null clears it. */
+export interface UpdateProfileRequest {
+  name: string | null;
+}
+
 export interface ApiError {
   error: string;
   message: string;

@@ -155,6 +155,201 @@ a {
   color: var(--text-secondary);
 }
 
+/* Title on the left, the account button on the right (#61). */
+.home-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-button {
+  flex: none;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  /* Keeps the focus ring round, and the tap target the circle it looks like. */
+  overflow: hidden;
+  border: 0.5px solid var(--border-strong);
+}
+
+.account-button:focus-visible {
+  outline: 2px solid var(--border-accent);
+  outline-offset: 2px;
+}
+
+/* ── Account (#61) ──────────────────────────────────────────────────────── */
+
+.avatar {
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-1);
+}
+
+.avatar--sm {
+  width: 40px;
+  height: 40px;
+}
+
+.avatar--lg {
+  width: 72px;
+  height: 72px;
+}
+
+/* The initial standing in for a picture. Accent tokens, so it follows the
+   light/dark palette without a rule of its own. */
+.avatar--initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-accent);
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.avatar--sm.avatar--initial {
+  font-size: 17px;
+}
+
+.avatar--lg.avatar--initial {
+  font-size: 30px;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 4px;
+}
+
+.profile-id {
+  min-width: 0;
+}
+
+.profile-name,
+.profile-email {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.profile-name {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.profile-email {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.account-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* `input.account-input`, for the reason `input.answer-input` is: the base
+   `input[type='text']` rule outranks a bare class. Its 16px stays (#10). */
+input.account-input {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  font-size: 16px;
+}
+
+.account-input:focus {
+  outline: none;
+  border-color: var(--border-accent);
+}
+
+.button-save {
+  flex: none;
+  height: 42px;
+  padding: 0 18px;
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--surface-2);
+  font-weight: 550;
+}
+
+.button-save:hover:not(:disabled) {
+  background: var(--text-primary);
+  opacity: 0.9;
+}
+
+.field-hint,
+.field-error,
+.field-saved {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.field-hint {
+  color: var(--text-muted);
+}
+
+.field-error {
+  color: var(--text-danger);
+}
+
+.field-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-success);
+}
+
+.fact-list {
+  margin: 0;
+  border-top: 0.5px solid var(--border);
+}
+
+.fact-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 0.5px solid var(--border);
+  font-size: 14px;
+}
+
+.fact-row dt {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.fact-row dd {
+  margin: 0;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* Log out: a real action, but never the loudest thing on the screen. */
+.button-danger {
+  color: var(--text-danger);
+  border-color: var(--border-danger);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: var(--bg-danger);
+}
+
 .screen-header {
   display: flex;
   align-items: center;

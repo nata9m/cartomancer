@@ -1,11 +1,13 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import type { ProgressSummary } from '@cartomancer/shared';
+import type { ProgressSummary, UserProfile } from '@cartomancer/shared';
+import { Avatar } from '@/components/Avatar';
 import { HomeQuizCards } from '@/components/HomeQuizCards';
 import { CountryOfTheDay } from '@/components/CountryOfTheDay';
 import { SignInBanner, StatsStrip, StreakBar } from '@/components/HomeStats';
 import { IconArrowRight } from '@/components/icons';
 import { isGuest } from '@/lib/guest';
+import { displayNameFor } from '@/lib/profile';
 import { apiFetch, currentUserId } from '@/lib/server-api';
 
 // Progress is per-user live data; never prerender or cache it.
@@ -33,18 +35,40 @@ export default async function HomePage() {
   const commit = process.env.GIT_SHA || DEV_COMMIT;
 
   let summary: ProgressSummary | null = null;
+  let profile: UserProfile | null = null;
   if (userId) {
-    const response = await apiFetch<{ summary: ProgressSummary | null }>('/api/summary', {
-      userId,
-    }).catch(() => ({ summary: null }));
-    summary = response.summary;
+    // In parallel, and each allowed to fail alone: the account button is a
+    // convenience and the stats are the screen, so neither takes the other down.
+    const [summaryResponse, profileResponse] = await Promise.all([
+      apiFetch<{ summary: ProgressSummary | null }>('/api/summary', { userId }).catch(() => ({
+        summary: null,
+      })),
+      apiFetch<UserProfile>('/api/me', { userId }).catch(() => null),
+    ]);
+    summary = summaryResponse.summary;
+    profile = profileResponse;
   }
 
   return (
     <main className="app-shell">
-      <header>
-        <h1 className="app-title">Cartomancer</h1>
-        <p className="tagline">Capitals, countries, and flags</p>
+      <header className="home-header">
+        <div>
+          <h1 className="app-title">Cartomancer</h1>
+          <p className="tagline">Capitals, countries, and flags</p>
+        </div>
+        {/* Signed in only (#61): a guest has no account to open, and keeps the
+            sign-in banner below. If the profile could not be read the button is
+            still here, with a generic initial — the account page is where Log
+            out lives, and it should not vanish with an api hiccup. */}
+        {userId ? (
+          <Link className="account-button" href="/account" aria-label="Account">
+            <Avatar
+              image={profile?.image ?? null}
+              label={profile ? displayNameFor(profile) : 'Account'}
+              size="sm"
+            />
+          </Link>
+        ) : null}
       </header>
 
       {summary ? (
