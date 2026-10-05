@@ -300,7 +300,11 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
           autoComplete="off"
           autoCapitalize="words"
           spellCheck={false}
-          disabled={busy || complete}
+          // Read-only while a guess is in flight, not disabled: a disabled input
+          // drops focus (and on a phone, the keyboard), and the `busy` guard in
+          // guess() already stops a second submission (#89).
+          readOnly={busy}
+          disabled={complete}
           onChange={(event) => onType(event.target.value)}
         />
         {/*

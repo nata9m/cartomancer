@@ -446,6 +446,15 @@ test('Countries recall accepts an exact name as it is typed, and waits on a pref
   await expect(page.locator('.inline-note')).toContainText('already on your list');
   await input.fill('');
 
+  // Focus is back in the box after every kind of guess, with no click (#89).
+  await input.pressSequentially('Nowhereland');
+  await input.press('Enter');
+  await expect(page.locator('.inline-note')).toContainText('No match');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('');
+  await input.press('Enter');
+  await expect(input).toBeFocused();
+
   // A typo is never accepted by itself, but Enter still takes it by fuzzy match.
   await start('Europe');
   await input.pressSequentially('Swizerland');

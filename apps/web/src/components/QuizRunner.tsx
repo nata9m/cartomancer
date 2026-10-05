@@ -550,7 +550,10 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
             autoComplete="off"
             autoCapitalize="words"
             spellCheck={false}
-            disabled={phase === 'revealed' || busy}
+            // Read-only while checking, so a failed check leaves the cursor in the
+            // box; the reveal disables it, and focus moves to Next (#89, #56).
+            readOnly={busy}
+            disabled={phase === 'revealed'}
             onChange={(event) => setTyped(event.target.value)}
           />
           {phase === 'answering' ? (
