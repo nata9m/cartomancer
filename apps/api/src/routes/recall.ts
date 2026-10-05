@@ -114,8 +114,8 @@ export async function registerRecallRoutes(app: FastifyInstance): Promise<void> 
 
   /**
    * One recall guess. A correct, novel guess is recorded and marks the country
-   * learned outright — recall's threshold is a single successful recall, not
-   * three in a row. A duplicate or unrecognised guess writes nothing: there is
+   * learned outright — recall's bar is a single successful recall (a one-day
+   * interval), not the two weeks other quiz types need (#50). A duplicate or unrecognised guess writes nothing: there is
    * no per-country "wrong answer" in recall, so nothing should be demoted.
    */
   app.post('/api/recall/:id/guesses', async (request) => {

@@ -114,8 +114,14 @@ export interface AnswerResult {
   /** Null for guests — nothing is persisted, so there is no streak. */
   currentStreak: number | null;
   isLearned: boolean | null;
-  /** True when this answer is what pushed the country over the threshold. */
+  /** True when this answer is what moved the country into "learned". */
   newlyLearned: boolean;
+  /**
+   * Spaced repetition (#50): days until this country is due for review again,
+   * from this answer. 0 after a miss, when it is simply back next round. Absent
+   * for guests, who have no schedule.
+   */
+  nextReviewInDays?: number;
 }
 
 /**

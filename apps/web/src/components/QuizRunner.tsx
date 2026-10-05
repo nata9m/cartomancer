@@ -22,7 +22,7 @@ import {
   type GuestAnswer,
 } from '@/lib/guest-store';
 import { haptic, hapticFor } from '@/lib/haptics';
-import { revealAnnouncement } from '@/lib/reveal';
+import { nextReviewText, revealAnnouncement } from '@/lib/reveal';
 import { feedbackText, mapTapFeedback, typeInFeedback } from '@/lib/type-in-feedback';
 import { getRoundNote } from '@/lib/round-note';
 import { markFactSeen } from '@/lib/seen-facts';
@@ -636,6 +636,10 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
               <IconSparkles size={16} stroke={1.9} aria-hidden="true" />
               {result.correctCountryName} is now learned — {result.currentStreak} in a row
             </p>
+          ) : null}
+
+          {result.nextReviewInDays !== undefined && result.wasCorrect ? (
+            <p className="review-note">{nextReviewText(result.nextReviewInDays)}</p>
           ) : null}
 
           <button

@@ -219,34 +219,7 @@ export const CATEGORY_CARDS: readonly {
 export const QUESTION_COUNT_OPTIONS = [10, 20, 30] as const;
 export const DEFAULT_QUESTION_COUNT = 20;
 
-/** 3 correct answers in a row marks a country learned… */
-export const LEARNED_STREAK_THRESHOLD = 3;
-/** …except active recall, where one successful recall is enough. */
-export const RECALL_LEARNED_STREAK_THRESHOLD = 1;
-
-export function learnedThresholdFor(quizTypeKey: string): number {
-  return quizTypeByKey(quizTypeKey)?.format === 'recall'
-    ? RECALL_LEARNED_STREAK_THRESHOLD
-    : LEARNED_STREAK_THRESHOLD;
-}
-
-/**
- * The bar a country has to clear to count as learned in a whole category, for
- * screens that explain the rule rather than apply it (the api stores
- * `is_learned` per quiz type and a category is `bool_or` over those).
- *
- * Derived from the category's quiz types rather than hard-coded, so adding one
- * keeps the copy honest: `countries` is 1 because active recall is its only
- * format, everything else is 3. If a category ever mixed thresholds this
- * returns the strictest, which is the number the explanation should quote —
- * none does today, and a category that did would need two sentences anyway.
- */
-export function learnedThresholdForCategory(category: QuizCategory): number {
-  const thresholds = QUIZ_TYPES.filter((type) => type.category === category).map((type) =>
-    learnedThresholdFor(type.key),
-  );
-  return thresholds.length === 0 ? LEARNED_STREAK_THRESHOLD : Math.max(...thresholds);
-}
+/* What counts as learned is a review interval, not a streak: see scheduling.ts (#50). */
 
 /**
  * pg_trgm similarity floor for fuzzy answer matching, in the middle of the

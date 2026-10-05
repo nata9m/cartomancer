@@ -157,6 +157,13 @@ model Progress {
   currentStreak  Int       @default(0) @map("current_streak")
   isLearned      Boolean   @default(false) @map("is_learned")
   lastAnsweredAt DateTime? @map("last_answered_at") @db.Timestamptz(6)
+  /// Spaced repetition (#50): the review interval in days, the ease factor that
+  /// stretches it, and when the country is next due. `isLearned` is
+  /// `intervalDays >= the learned interval`, and `learnedAt` is when it became so.
+  intervalDays   Float     @default(0) @map("interval_days")
+  ease           Float     @default(2.5)
+  dueAt          DateTime? @map("due_at") @db.Timestamptz(6)
+  learnedAt      DateTime? @map("learned_at") @db.Timestamptz(6)
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   country  Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
@@ -166,6 +173,8 @@ model Progress {
   // Supports the shared rotation pool: eligible countries ordered by
   // last_answered_at ASC NULLS FIRST within one (user, quiz type).
   @@index([userId, quizTypeId, lastAnsweredAt])
+  // Selection by what is due (#50).
+  @@index([userId, quizTypeId, dueAt])
   @@index([userId, quizTypeId, isLearned])
   @@map("progress")
 }
