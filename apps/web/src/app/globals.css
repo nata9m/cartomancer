@@ -2009,6 +2009,15 @@ input.register-search {
   letter-spacing: -0.3px;
 }
 
+/* What the dots are (#109): one muted line under the prompt, in the flow so it
+   never sits over the map or the buttons. */
+.map-note {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 /* Edge to edge: the shell's side padding is taken back, and the frame's own
    rounding and side borders go with it. */
 .app-shell--map .world-map {

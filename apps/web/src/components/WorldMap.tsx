@@ -284,7 +284,7 @@ export function WorldMap({
             className={`world-map__svg${disabled ? ' world-map__svg--locked' : ''}`}
             viewBox={viewBoxOf(view)}
             role="group"
-            aria-label="World map. Tap a country to select it; drag to move and pinch to zoom."
+            aria-label="World map. Tap a country to select it; drag to move and pinch to zoom. Dots mark small countries; tap one to select it."
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerEnd}

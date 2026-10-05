@@ -505,6 +505,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
         </div>
       ) : format === 'map_tap' ? (
         <>
+          <p className="map-note">Dots mark small countries. Tap them like any other.</p>
           <WorldMap
             selectedIso={mapChoice}
             onSelect={setMapChoice}
