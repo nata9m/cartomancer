@@ -114,8 +114,14 @@ export interface AnswerResult {
   /** Null for guests — nothing is persisted, so there is no streak. */
   currentStreak: number | null;
   isLearned: boolean | null;
-  /** True when this answer is what pushed the country over the threshold. */
+  /** True when this answer is what moved the country into "learned". */
   newlyLearned: boolean;
+  /**
+   * Spaced repetition (#50): days until this country is due for review again,
+   * from this answer. 0 after a miss, when it is simply back next round. Absent
+   * for guests, who have no schedule.
+   */
+  nextReviewInDays?: number;
 }
 
 /**
@@ -236,6 +242,23 @@ export interface ProgressSummary {
     flags: number;
   };
   totalCountries: number;
+  /** Countries whose last answer was missed, ready to drill (#51); null when there are none. */
+  review: ReviewSummary | null;
+}
+
+/**
+ * What a "needs review" round would be. Progress is per quiz type, so a review
+ * round is too: this is the quiz type with the most countries to review (the
+ * most recently missed one on a tie), and `countryIds` are up to a round's worth
+ * of them, most recently missed first.
+ */
+export interface ReviewSummary {
+  /** How many countries need review in `quizTypeKey`, which can exceed `countryIds`. */
+  count: number;
+  quizTypeKey: string;
+  quizTypeName: string;
+  directionLabel: string;
+  countryIds: number[];
 }
 
 /**

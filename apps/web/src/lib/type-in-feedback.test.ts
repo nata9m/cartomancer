@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AnswerResult } from '@cartomancer/shared';
-import { feedbackText, typeInFeedback } from './type-in-feedback';
+import { feedbackText, mapTapFeedback, typeInFeedback } from './type-in-feedback';
 
 const result = {
   wasCorrect: true,
@@ -84,5 +84,17 @@ describe('typeInFeedback', () => {
 
   it('has no text for no note', () => {
     expect(feedbackText(null)).toBe('');
+  });
+});
+
+describe('mapTapFeedback', () => {
+  it('names the country a wrong tap landed on', () => {
+    const note = mapTapFeedback({ wasCorrect: false, matchedCountryName: 'Argentina' });
+    expect(feedbackText(note)).toBe('That was Argentina.');
+    expect(note?.parts.filter((part) => part.emphasis)).toHaveLength(1);
+  });
+  it('says nothing for a right tap, or a tap on nothing', () => {
+    expect(mapTapFeedback({ wasCorrect: true, matchedCountryName: undefined })).toBeNull();
+    expect(mapTapFeedback({ wasCorrect: false, matchedCountryName: undefined })).toBeNull();
   });
 });

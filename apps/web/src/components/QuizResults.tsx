@@ -95,17 +95,25 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
     };
   }, [isGuest, sessionId]);
 
-  async function playAgain(): Promise<void> {
+  /** Another round of this quiz type: the same filters, or exactly the countries missed. */
+  async function startAnother(practiseMissed: boolean): Promise<void> {
     if (!results) return;
     setBusy(true);
     setStartError(null);
     try {
-      const session = await startQuizSession({
-        quizTypeKey: results.quizType.key,
-        region: results.regionFilter,
-        difficulty: results.difficultyFilter,
-        questionCount: results.total,
-      });
+      const session = await startQuizSession(
+        practiseMissed
+          ? {
+              quizTypeKey: results.quizType.key,
+              countryIds: results.missed.map((missed) => missed.countryId),
+            }
+          : {
+              quizTypeKey: results.quizType.key,
+              region: results.regionFilter,
+              difficulty: results.difficultyFilter,
+              questionCount: results.total,
+            },
+      );
       if (session.isGuest) {
         saveGuestQuiz({ session, answers: [] });
       }
@@ -190,12 +198,23 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
         <button
           type="button"
           className="button-primary"
-          onClick={() => void playAgain()}
+          onClick={() => void startAnother(false)}
           disabled={busy}
         >
           Play again
           <IconArrowRight size={16} stroke={2} />
         </button>
+        {results.missed.length > 0 ? (
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => void startAnother(true)}
+            disabled={busy}
+          >
+            Practise these{' '}
+            {results.missed.length === 1 ? 'again' : `${results.missed.length} again`}
+          </button>
+        ) : null}
         <Link className="button-secondary" href="/" style={{ lineHeight: '40px' }}>
           Back to home
         </Link>
@@ -220,7 +239,7 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
  *    country → capital and fixes capital → country ("Paris — France")
  */
 function MissedRow({ missed, category }: { missed: MissedQuestion; category: QuizCategory }) {
-  if (category === 'flags') {
+  if (category === 'flags' || category === 'map') {
     return (
       <div className="missed-row">
         <span className="missed-flag">

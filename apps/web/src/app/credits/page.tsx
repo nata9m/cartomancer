@@ -41,6 +41,12 @@ const SOURCES: Source[] = [
     href: 'https://github.com/hjnilsson/country-flags',
     note: 'Wikimedia Commons renderings, public domain',
   },
+  {
+    what: 'Map outlines',
+    name: 'topojson/world-atlas',
+    href: 'https://github.com/topojson/world-atlas',
+    note: 'Natural Earth, public domain',
+  },
 ];
 
 export default function CreditsPage() {

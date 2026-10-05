@@ -94,6 +94,8 @@ export interface StartQuizInput {
   region?: string;
   difficulty?: string;
   questionCount?: number;
+  /** Ask about exactly these countries, instead of choosing by the filters (#51). */
+  countryIds?: number[];
   /** Guest trivia rotation: clue id → epoch ms last answered (#70). */
   seenFacts?: Record<string, number>;
 }
