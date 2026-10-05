@@ -236,24 +236,28 @@ export interface ProgressSummary {
     flags: number;
   };
   totalCountries: number;
-  /** Countries whose last answer was missed, ready to drill (#51); null when there are none. */
-  review: ReviewSummary | null;
 }
 
 /**
- * What a "needs review" round would be. Progress is per quiz type, so a review
- * round is too: this is the quiz type with the most countries to review (the
- * most recently missed one on a tie), and `countryIds` are up to a round's worth
- * of them, most recently missed first.
+ * What a review round for one quiz type would be (#51, #108): the countries the
+ * player answered at least once and whose last answer was a miss, in that quiz
+ * type. Review belongs to a game, not to the home screen, so this is per quiz
+ * type and only the types that have something appear.
  */
-export interface ReviewSummary {
-  /** How many countries need review in `quizTypeKey`, which can exceed `countryIds`. */
+export interface ReviewEntry {
+  /** How many need review in this quiz type, which can exceed `countryIds`. */
   count: number;
-  quizTypeKey: string;
-  quizTypeName: string;
-  directionLabel: string;
+  /** Up to a round's worth, most recently missed first. */
   countryIds: number[];
+  /**
+   * Fun facts only: country id (as a string key) → the clue that was missed, so a
+   * review round re-asks that clue rather than a random other one for the country.
+   */
+  factIds?: Record<string, number>;
 }
+
+/** `GET /api/review`: review entries by quiz type key. Empty for a guest. */
+export type ReviewByQuizType = Record<string, ReviewEntry>;
 
 /**
  * One country's state within a category, from `GET /api/progress/:category`.

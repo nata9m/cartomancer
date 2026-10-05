@@ -657,3 +657,13 @@ test('the map fills the screen, re-fits on rotation and keeps the selection (#91
   expect(await pageScrolls()).toBe(false);
   await expect(page.getByRole('button', { name: /^(Confirm|Tap a country)$/ })).toBeInViewport();
 });
+
+test('review is not a home card, and a guest sees none under any game (#108)', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText(/to review/i)).toHaveCount(0);
+  for (const game of ['capitals', 'flags', 'map', 'trivia']) {
+    await page.goto(`/${game}`);
+    await expect(page.getByRole('heading').first()).toBeVisible();
+    await expect(page.getByText(/to review/i)).toHaveCount(0);
+  }
+});

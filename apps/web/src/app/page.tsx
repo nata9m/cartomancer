@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import type { ProgressSummary, UserProfile } from '@cartomancer/shared';
 import { Avatar } from '@/components/Avatar';
 import { HomeQuizCards } from '@/components/HomeQuizCards';
-import { ReviewCard } from '@/components/ReviewCard';
 import { ThemeSetting } from '@/components/ThemeSetting';
 import { CountryOfTheDay } from '@/components/CountryOfTheDay';
 import { SignInBanner, StatsStrip, StreakBar } from '@/components/HomeStats';
@@ -83,8 +82,6 @@ export default async function HomePage() {
       )}
 
       <CountryOfTheDay />
-
-      {summary?.review ? <ReviewCard review={summary.review} /> : null}
 
       {/* No filter chips here any more (#28). Every card opens a screen that
           owns its own, so a chip on this one either duplicated theirs or, for

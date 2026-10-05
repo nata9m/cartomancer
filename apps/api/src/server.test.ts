@@ -20,7 +20,7 @@ import {
 import { type ClueCandidate, orderByRotation, pickClues } from './lib/quiz.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { clearCountryCache, loadAllCountries } from './lib/countries.js';
-import { loadSummary } from './lib/progress.js';
+import { loadReview, loadSummary } from './lib/progress.js';
 import { requestTimeZone } from './timezone.js';
 import { loadEnv } from './env.js';
 import { registerHealthRoutes } from './routes/health.js';
@@ -1549,22 +1549,26 @@ describe('review rounds (#51)', () => {
     assert.equal(response.json().questions.length, 1);
   });
 
-  it('summarises what needs review: missed, most recent first, and gone once answered right', async () => {
-    const summary = () => loadSummary(prisma, reviewUserId);
-    assert.equal((await summary()).review, null, 'nothing answered yet');
+  it('has nothing to review before anything is answered', async () => {
+    assert.deepEqual(await loadReview(prisma, reviewUserId), {});
+  });
 
-    const [japan, brazil, kenya] = await ids('Japan', 'Brazil', 'Kenya');
-    const quizTypeKey = 'capitals-c2cap-type';
-    const session = (await start({ quizTypeKey, countryIds: [japan, brazil, kenya] })).json();
-    const order: number[] = session.questions.map(
-      (question: { countryId: number }) => question.countryId,
-    );
+  it('reviews each game on its own: missed countries per quiz type, gone once answered right', async () => {
+    const [japan, brazil, kenya, peru] = await ids('Japan', 'Brazil', 'Kenya', 'Peru');
     const answers = new Map<number, string>([
       [japan as number, 'Tokyo'],
       [brazil as number, 'Brasília'],
       [kenya as number, 'Nairobi'],
     ]);
-    // Miss two of the three; get one right.
+
+    // Capitals (typed): miss two of three, get one right.
+    const capitalsKey = 'capitals-c2cap-type';
+    const session = (
+      await start({ quizTypeKey: capitalsKey, countryIds: [japan, brazil, kenya] })
+    ).json();
+    const order: number[] = session.questions.map(
+      (question: { countryId: number }) => question.countryId,
+    );
     const right = order[0] as number;
     for (const [position, countryId] of order.entries()) {
       await play(
@@ -1573,28 +1577,149 @@ describe('review rounds (#51)', () => {
         countryId === right ? (answers.get(countryId) as string) : 'nope',
       );
     }
+    // Flags (typed): miss one, in a different game.
+    const flags = (await start({ quizTypeKey: 'flags-flag2c-type', countryIds: [peru] })).json();
+    await play(flags.id, 1, 'nope');
 
-    const review = (await summary()).review;
-    assert.ok(review);
-    assert.equal(review.quizTypeKey, quizTypeKey);
-    assert.equal(review.count, 2);
-    assert.deepEqual([...review.countryIds].sort(), order.filter((id) => id !== right).sort());
-    assert.equal(review.countryIds.includes(right), false, 'a correct answer needs no review');
-    assert.equal(review.quizTypeName.length > 0, true);
+    const review = await loadReview(prisma, reviewUserId);
+    // Both games are there, each with its own count: not just the larger one.
+    assert.deepEqual(Object.keys(review).sort(), [capitalsKey, 'flags-flag2c-type']);
+    assert.equal(review[capitalsKey]?.count, 2);
+    assert.deepEqual(
+      [...(review[capitalsKey]?.countryIds ?? [])].sort(),
+      order.filter((id) => id !== right).sort(),
+    );
+    assert.equal(review[capitalsKey]?.countryIds.includes(right), false);
+    assert.equal(review['flags-flag2c-type']?.count, 1);
+    assert.deepEqual(review['flags-flag2c-type']?.countryIds, [peru]);
+    assert.equal(review[capitalsKey]?.factIds, undefined, 'only Fun facts carry clue ids');
 
-    // Answering one of them correctly takes it off the list.
-    const again = (await start({ quizTypeKey, countryIds: review.countryIds })).json();
+    // Answering one of them correctly takes it off its own game's list only.
+    const again = (
+      await start({ quizTypeKey: capitalsKey, countryIds: review[capitalsKey]?.countryIds })
+    ).json();
     const first = again.questions[0] as { countryId: number };
     await play(again.id, 1, answers.get(first.countryId) as string);
-    const after = (await summary()).review;
-    assert.equal(after?.count, 1);
-    assert.equal(after?.countryIds.includes(first.countryId), false);
+    const after = await loadReview(prisma, reviewUserId);
+    assert.equal(after[capitalsKey]?.count, 1);
+    assert.equal(after[capitalsKey]?.countryIds.includes(first.countryId), false);
+    assert.equal(after['flags-flag2c-type']?.count, 1, 'the other game is untouched');
   });
 
-  it('is served by the summary endpoint', async () => {
-    const response = await app.inject({ method: 'GET', url: '/api/summary', headers: headers() });
-    assert.equal(response.statusCode, 200);
-    assert.ok('review' in response.json().summary);
+  it('a review round does not touch the never-seen pool (#96)', async () => {
+    const key = 'capitals-cap2c-mc';
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key } });
+    const [chad, mali] = await ids('Chad', 'Mali');
+    const seenBefore = await prisma.progress.count({
+      where: { userId: reviewUserId, quizTypeId: quizType.id },
+    });
+    assert.equal(seenBefore, 0);
+    const session = (await start({ quizTypeKey: key, countryIds: [chad, mali] })).json();
+    for (const question of session.questions) {
+      await play(session.id, question.sequence, 'wrong');
+    }
+    // Only the two countries that were asked are now "seen"; the rest of the pool
+    // is untouched, so a normal round still draws from never-seen countries.
+    const seen = await prisma.progress.findMany({
+      where: { userId: reviewUserId, quizTypeId: quizType.id },
+      select: { countryId: true },
+    });
+    assert.deepEqual(seen.map((row) => row.countryId).sort(), [chad, mali].sort());
+    const normal = (await start({ quizTypeKey: key, questionCount: 10 })).json();
+    const asked: number[] = normal.questions.map((q: { countryId: number }) => q.countryId);
+    assert.equal(asked.includes(chad as number) || asked.includes(mali as number), false);
+  });
+
+  it('re-asks the clue that was missed in Fun facts, not another one for the country (#108)', async () => {
+    const key = 'trivia-fact2c-mc';
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key } });
+    // A country with several clues, so "the same clue" means something.
+    const crowded = await prisma.$queryRawUnsafe<{ country_id: number }[]>(
+      'SELECT country_id FROM country_facts GROUP BY country_id HAVING COUNT(*) > 1 ORDER BY country_id LIMIT 1',
+    );
+    const countryId = crowded[0]?.country_id as number;
+    const clues = await prisma.countryFact.findMany({
+      where: { countryId },
+      orderBy: { id: 'asc' },
+    });
+    assert.ok(clues.length > 1);
+    const missed = clues[clues.length - 1] as { id: number; fact: string };
+
+    // Put that clue in a session and miss it.
+    const created = await prisma.quizSession.create({
+      data: {
+        quizTypeId: quizType.id,
+        questionCount: 1,
+        createdBy: reviewUserId,
+        participants: { create: [{ userId: reviewUserId }] },
+        questions: { create: [{ sequence: 1, countryId, factId: missed.id }] },
+      },
+    });
+    const wrong = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${created.id}/answers`,
+      headers: headers(),
+      payload: { sequence: 1, answer: 'definitely not it' },
+    });
+    assert.equal(wrong.statusCode, 200, wrong.body);
+
+    const review = await loadReview(prisma, reviewUserId);
+    const entry = review[key];
+    assert.equal(entry?.count, 1);
+    assert.deepEqual(entry?.countryIds, [countryId]);
+    assert.deepEqual(entry?.factIds, { [String(countryId)]: missed.id });
+
+    // Starting from the clue ids asks exactly that clue.
+    const response = await start({ quizTypeKey: key, factIds: [missed.id] });
+    assert.equal(response.statusCode, 201, response.body);
+    const session = response.json();
+    assert.equal(session.questions.length, 1);
+    assert.equal(session.questions[0].factId, missed.id);
+    assert.equal(session.questions[0].promptText, missed.fact);
+  });
+
+  it('only accepts clue ids for Fun facts, and only clues that exist', async () => {
+    const notTrivia = await start({ quizTypeKey: 'capitals-c2cap-mc', factIds: [1] });
+    assert.equal(notTrivia.statusCode, 400);
+    const missing = await start({ quizTypeKey: 'trivia-fact2c-mc', factIds: [99999999] });
+    assert.equal(missing.statusCode, 400);
+    const empty = await start({ quizTypeKey: 'trivia-fact2c-mc', factIds: [] });
+    assert.equal(empty.statusCode, 400);
+  });
+
+  it('is served by /api/review for a player, and empty for a guest', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/review', headers: headers() });
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json();
+    assert.equal(body.isGuest, false);
+    assert.ok(Object.keys(body.review).length > 0);
+    const guest = await app.inject({ method: 'GET', url: '/api/review' });
+    assert.deepEqual(guest.json(), { review: {}, isGuest: true });
+  });
+
+  it('keeps recall out of review', async () => {
+    const quizType = await prisma.quizType.findUniqueOrThrow({
+      where: { key: 'countries-recall' },
+    });
+    const [japan] = await ids('Japan');
+    await prisma.progress.upsert({
+      where: {
+        userId_countryId_quizTypeId: {
+          userId: reviewUserId,
+          countryId: japan as number,
+          quizTypeId: quizType.id,
+        },
+      },
+      create: {
+        userId: reviewUserId,
+        countryId: japan as number,
+        quizTypeId: quizType.id,
+        currentStreak: 0,
+        lastAnsweredAt: new Date(),
+      },
+      update: { currentStreak: 0, lastAnsweredAt: new Date() },
+    });
+    assert.equal((await loadReview(prisma, reviewUserId))['countries-recall'], undefined);
   });
 });
 

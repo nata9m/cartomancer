@@ -1,6 +1,7 @@
 'use client';
 
 import { ModePicker } from './ModePicker';
+import type { ReviewByQuizType } from '@cartomancer/shared';
 import type { Filters } from '@/lib/filters';
 import { getSeenFacts } from '@/lib/seen-facts';
 
@@ -15,7 +16,13 @@ import { getSeenFacts } from '@/lib/seen-facts';
  * handed to the api, which does the ordering; recording a clue as met happens
  * when it is answered (QuizRunner), not here when a round starts (#70).
  */
-export function TriviaModePicker({ filters }: { filters: Filters }) {
+export function TriviaModePicker({
+  filters,
+  review,
+}: {
+  filters: Filters;
+  review: ReviewByQuizType;
+}) {
   return (
     <ModePicker
       title="Fun facts"
@@ -23,6 +30,8 @@ export function TriviaModePicker({ filters }: { filters: Filters }) {
       showDifficulty
       showQuestionCount
       seenFactsForStart={getSeenFacts}
+      review={review}
+      reviewNoun="clues"
       groups={[
         {
           label: 'Multiple choice',

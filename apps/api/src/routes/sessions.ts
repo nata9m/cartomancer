@@ -51,6 +51,12 @@ const startSessionSchema = z.object({
    */
   countryIds: z.array(z.coerce.number().int().positive()).min(1).max(195).optional(),
   /**
+   * Fun facts review (#108): ask exactly these clues, so a review round re-asks
+   * the clue that was missed rather than a random other one for the country.
+   * Trivia quiz types only; the countries come from the clues.
+   */
+  factIds: z.array(z.coerce.number().int().positive()).min(1).max(195).optional(),
+  /**
    * Guest rotation (#70): clue id → epoch ms it was last answered, one list per
    * browser. Ignored for signed-in play, where fact_progress is the memory. The
    * cap is generous next to a library of a few hundred clues and exists only so
@@ -152,7 +158,23 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     let factsByCountryId: Map<number, string>;
     let factIdsByCountryId: Map<number, number> | undefined;
 
-    if (body.countryIds) {
+    if (body.factIds) {
+      if (definition.category !== 'trivia') {
+        throw badRequest('factIds is only for Fun facts quiz types');
+      }
+      const requested = [...new Set(body.factIds)];
+      const loaded = await loadFactsByIds(app.prisma, requested);
+      if (loaded.factIdsByCountryId.size === 0 || loaded.factsByCountryId.size < 1) {
+        throw badRequest('factIds names no clue that exists');
+      }
+      const found = new Set([...loaded.factIdsByCountryId.values()]);
+      if (requested.some((id) => !found.has(id))) {
+        throw badRequest('factIds names a clue that does not exist');
+      }
+      factsByCountryId = loaded.factsByCountryId;
+      factIdsByCountryId = loaded.factIdsByCountryId;
+      countryIds = shuffle([...loaded.factIdsByCountryId.keys()]);
+    } else if (body.countryIds) {
       const requested = [...new Set(body.countryIds)];
       const known = await app.prisma.country.findMany({
         where: { id: { in: requested } },
