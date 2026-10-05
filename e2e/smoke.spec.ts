@@ -413,3 +413,66 @@ test('a guest plays a map round: select, confirm, and see where it was (#52)', a
   await expect(page.locator('.result-row')).toBeVisible();
   await expect(page.locator('path.map-country--wrong')).toHaveCount(0);
 });
+
+test('Countries recall accepts an exact name as it is typed, and waits on a prefix (#88)', async ({
+  page,
+}) => {
+  await continueAsGuest(page);
+  const start = async (region: string) => {
+    await page.goto(`/recall?region=${region}`);
+    await page.getByRole('button', { name: /^Play/ }).click();
+    await page.waitForURL(/\/recall\/guest-/);
+  };
+  const input = page.locator('.answer-input');
+  const count = page.locator('.recall-count');
+
+  // An exact name needs no Enter: accepted, the box clears, the counter moves,
+  // and focus stays in the box.
+  await start('Asia');
+  await expect(count).toHaveText('0');
+  await input.pressSequentially('China');
+  await expect(count).toHaveText('1');
+  await expect(input).toHaveValue('');
+  await expect(input).toBeFocused();
+  await expect(page.locator('.pill', { hasText: 'China' })).toBeVisible();
+
+  // An already-recalled name does not trigger the "already on your list" note
+  // while typing; that stays for Enter.
+  await input.pressSequentially('China');
+  await page.waitForTimeout(900);
+  await expect(count).toHaveText('1');
+  await expect(page.locator('.inline-note')).not.toContainText('already');
+  await input.press('Enter');
+  await expect(page.locator('.inline-note')).toContainText('already on your list');
+  await input.fill('');
+
+  // Focus is back in the box after every kind of guess, with no click (#89).
+  await input.pressSequentially('Nowhereland');
+  await input.press('Enter');
+  await expect(page.locator('.inline-note')).toContainText('No match');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('');
+  await input.press('Enter');
+  await expect(input).toBeFocused();
+
+  // A typo is never accepted by itself, but Enter still takes it by fuzzy match.
+  await start('Europe');
+  await input.pressSequentially('Swizerland');
+  await page.waitForTimeout(1000);
+  await expect(count).toHaveText('0');
+  await input.press('Enter');
+  await expect(count).toHaveText('1');
+
+  // "Niger" is also the start of Nigeria: typing on gets Nigeria, not Niger…
+  await start('Africa');
+  await input.pressSequentially('Niger');
+  await input.pressSequentially('ia');
+  await expect(count).toHaveText('1');
+  await expect(page.locator('.pill', { hasText: 'Nigeria' })).toBeVisible();
+  await expect(page.locator('.pill', { hasText: /^Niger$/ })).toHaveCount(0);
+
+  // …and pausing after "Niger" accepts Niger.
+  await input.pressSequentially('Niger');
+  await expect(count).toHaveText('2');
+  await expect(page.locator('.pill', { hasText: /^Niger$/ })).toBeVisible();
+});

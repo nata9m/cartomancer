@@ -2,8 +2,14 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
-import type { RecallSession } from '@cartomancer/shared';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  COUNTRIES,
+  RECALL_PREFIX_WAIT_MS,
+  buildRecallIndex,
+  decideRecall,
+  type RecallSession,
+} from '@cartomancer/shared';
 import { IconCheck, IconX } from './icons';
 import {
   checkRecallGuessAsGuest,
@@ -59,6 +65,61 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
    * on "I'm done" can land in the same tick, and `busy` is a render behind.
    */
   const finishing = useRef(false);
+  /** The pause before a name that is also the start of another is taken (#88). */
+  const prefixTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guessRef = useRef(guess);
+  useEffect(() => {
+    guessRef.current = guess;
+  });
+  useEffect(
+    () => () => {
+      if (prefixTimer.current) clearTimeout(prefixTimer.current);
+    },
+    [],
+  );
+
+  // The region's names are not secret in recall — naming them is the game — so
+  // the box can be judged here, on every change, with no request per keystroke
+  // (#88). Built once per round.
+  const index = useMemo(
+    () =>
+      session
+        ? buildRecallIndex(
+            COUNTRIES.filter(
+              (country) => session.region === 'all' || country.region === session.region,
+            ),
+          )
+        : null,
+    [session],
+  );
+
+  /**
+   * Typing: an exact, unrecalled name is accepted as soon as it is complete, by
+   * the same `guess` Enter uses, so validation, persistence, guest storage and
+   * the auto-finish stay in one place. A name that is also the start of another
+   * ("Niger" / Nigeria) waits for typing to pause. A typo never auto-accepts.
+   */
+  function onType(value: string): void {
+    setTyped(value);
+    if (prefixTimer.current) {
+      clearTimeout(prefixTimer.current);
+      prefixTimer.current = null;
+    }
+    if (!index || busy) return;
+    const decision = decideRecall(
+      index,
+      value,
+      new Set(recalled.map((country) => country.isoCode.toUpperCase())),
+    );
+    if (decision.kind === 'now') {
+      void guessRef.current(value);
+    } else if (decision.kind === 'wait') {
+      prefixTimer.current = setTimeout(() => {
+        prefixTimer.current = null;
+        void guessRef.current(value);
+      }, RECALL_PREFIX_WAIT_MS);
+    }
+  }
 
   useEffect(() => {
     if (!isGuest) {
@@ -91,13 +152,20 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
     setRecalled(stored.recalled);
   }, [isGuest, sessionId]);
 
+  // Focus returns to the box whenever it becomes usable: on load, and after each
+  // guess. A disabled input cannot take focus, so doing this in the guess itself
+  // runs a render too early and loses it (#88).
   useEffect(() => {
-    inputRef.current?.focus();
-  }, [session]);
+    if (!busy) inputRef.current?.focus();
+  }, [session, busy]);
 
   async function guess(value: string): Promise<void> {
     if (!session || busy || value.trim() === '') {
       return;
+    }
+    if (prefixTimer.current) {
+      clearTimeout(prefixTimer.current);
+      prefixTimer.current = null;
     }
     setBusy(true);
     setSubmitError(null);
@@ -232,8 +300,12 @@ export function RecallRunner({ sessionId }: { sessionId: string }) {
           autoComplete="off"
           autoCapitalize="words"
           spellCheck={false}
-          disabled={busy || complete}
-          onChange={(event) => setTyped(event.target.value)}
+          // Read-only while a guess is in flight, not disabled: a disabled input
+          // drops focus (and on a phone, the keyboard), and the `busy` guard in
+          // guess() already stops a second submission (#89).
+          readOnly={busy}
+          disabled={complete}
+          onChange={(event) => onType(event.target.value)}
         />
         {/*
           Submitting with Enter alone leaves no visible way to add a country on

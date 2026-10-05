@@ -2,6 +2,7 @@ export * from './taxonomy.js';
 export * from './countries.js';
 export * from './facts.js';
 export * from './matching.js';
+export * from './recall-match.js';
 export * from './profile.js';
 export * from './answer-hash.js';
 export * from './answer-hint.js';
