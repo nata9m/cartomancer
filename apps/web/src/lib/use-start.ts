@@ -16,6 +16,9 @@ export function countryRotation(quizTypeKey: string): { seenCountries?: Record<s
   return Object.keys(seenCountries).length > 0 ? { seenCountries } : {};
 }
 
+/** The pending key of a quiz type's review card, apart from its normal start card. */
+export const reviewKeyFor = (quizTypeKey: string): string => `${quizTypeKey}:review`;
+
 export const pendingKeyFor = (quizTypeKey: string, questionCount?: number): string =>
   `${quizTypeKey}:${questionCount ?? 'default'}`;
 
@@ -80,15 +83,24 @@ export function useSessionStarter(filters: Filters) {
   }
 
   /**
-   * A round over exactly these countries (#51): the ones that need review. The
-   * filters play no part, so the same `Filters` every other starter takes is
-   * not read.
+   * A round over exactly the countries (or, for Fun facts, the clues) that need
+   * review in this quiz type (#51, #108). The filters play no part, so the same
+   * `Filters` every other starter takes is not read.
    */
-  async function startReview(quizTypeKey: string, countryIds: number[]): Promise<void> {
-    setPendingKey(pendingKeyFor(quizTypeKey, countryIds.length));
+  async function startReview(
+    quizTypeKey: string,
+    entry: { countryIds: number[]; factIds?: Record<string, number> },
+  ): Promise<void> {
+    setPendingKey(reviewKeyFor(quizTypeKey));
     setError(null);
     try {
-      const session = await startQuizSession({ quizTypeKey, countryIds });
+      // Fun facts re-asks the clue that was missed, not another for the country.
+      const clues = entry.factIds ? Object.values(entry.factIds) : [];
+      const session = await startQuizSession(
+        clues.length > 0
+          ? { quizTypeKey, factIds: clues }
+          : { quizTypeKey, countryIds: entry.countryIds },
+      );
       if (session.isGuest) {
         saveGuestQuiz({ session, answers: [] });
       }

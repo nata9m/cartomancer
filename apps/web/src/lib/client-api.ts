@@ -96,6 +96,8 @@ export interface StartQuizInput {
   questionCount?: number;
   /** Ask about exactly these countries, instead of choosing by the filters (#51). */
   countryIds?: number[];
+  /** Fun facts review: ask exactly these clues (#108). */
+  factIds?: number[];
   /** Guest trivia rotation: clue id → epoch ms last answered (#70). */
   seenFacts?: Record<string, number>;
   /** Guest country rotation: country id → epoch ms last asked (#96). */

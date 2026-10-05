@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { loadSummary } from '../lib/progress.js';
+import { loadReview, loadSummary } from '../lib/progress.js';
 import { requestTimeZone } from '../timezone.js';
 
 export async function registerSummaryRoutes(app: FastifyInstance): Promise<void> {
@@ -15,5 +15,18 @@ export async function registerSummaryRoutes(app: FastifyInstance): Promise<void>
     }
     const summary = await loadSummary(app.prisma, userId, requestTimeZone(request));
     return { summary, isGuest: false };
+  });
+
+  /**
+   * What the player has missed, by quiz type (#108). Each game's start screen asks
+   * for this and offers a review round for its own modes. A guest has no
+   * persisted progress, so gets an empty object: nothing to review, not an error.
+   */
+  app.get('/api/review', async (request) => {
+    const { userId } = request.actor;
+    if (userId === null) {
+      return { review: {}, isGuest: true };
+    }
+    return { review: await loadReview(app.prisma, userId), isGuest: false };
   });
 }
