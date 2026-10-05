@@ -1821,35 +1821,6 @@ input.register-search {
     center top / 100% auto no-repeat;
 }
 
-/* Tarot-like cards: a double rule, a title, the learned count as the
-   card's number. */
-.card--tarot {
-  position: relative;
-  padding: 15px 14px;
-  background: linear-gradient(180deg, var(--surface-2), var(--surface-3));
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  box-shadow:
-    inset 0 0 0 3px var(--surface-2),
-    inset 0 0 0 4px var(--border);
-}
-
-.card--tarot:hover {
-  border-color: var(--border-accent);
-}
-
-.card--tarot .card-title {
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-}
-
-.card--tarot .card-chevron {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-accent);
-}
-
 /* The theme control: three segments, one of them the current choice. */
 .theme-setting {
   display: flex;
