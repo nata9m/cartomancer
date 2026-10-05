@@ -39,9 +39,26 @@ async function continueAsGuest(page: Page): Promise<void> {
   });
   expect(behind.content).toBe('none');
   expect(behind.mask).toBe('none');
-  // The quiz cards carry no learned count: that lives in the stats strip (#94).
-  await expect(page.locator('.card--tarot .card-number')).toHaveCount(0);
-  await expect(page.locator('.card--tarot .card-chevron')).toHaveCount(5);
+  // The quiz cards are the plain cards, with no learned count (that lives in the
+  // stats strip) and no tarot styling (#94, #101).
+  await expect(page.locator('.card-number')).toHaveCount(0);
+  await expect(page.locator('.card--tarot')).toHaveCount(0);
+  await expect(page.locator('.stack > a.card .card-chevron')).toHaveCount(5);
+  // A single thin border, flat background and 8px corners, as before #57.
+  const capitals = page.locator('.stack > a.card', { hasText: 'Capitals' });
+  const style = await capitals.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {
+      border: cs.borderTopWidth,
+      radius: cs.borderTopLeftRadius,
+      image: cs.backgroundImage,
+      shadow: cs.boxShadow,
+    };
+  });
+  expect(style.radius).toBe('8px');
+  expect(style.image).toBe('none');
+  expect(style.shadow).toBe('none');
+  expect(parseFloat(style.border)).toBeLessThanOrEqual(1);
 }
 
 test('a guest plays a Capitals multiple-choice round through to the results', async ({ page }) => {
@@ -394,11 +411,13 @@ test('a guest plays a map round: select, confirm, and see where it was (#52)', a
 
   // 1. Zooming in and out and back to the world.
   const widthOf = async () => Number(((await map.getAttribute('viewBox')) ?? '').split(' ')[2]);
-  expect(await widthOf()).toBe(1000);
+  // A phone held upright opens on a slice of the world, filling the height (#91).
+  const opening = await widthOf();
+  expect(opening).toBeLessThan(1000);
   await page.getByRole('button', { name: 'Zoom in' }).click();
-  expect(await widthOf()).toBeLessThan(1000);
+  expect(await widthOf()).toBeLessThan(opening);
   await page.getByRole('button', { name: 'Show the whole world' }).click();
-  expect(await widthOf()).toBe(1000);
+  expect(await widthOf()).toBeCloseTo(1000, 0);
 
   // A drag moves the map and must not select the country it started on, even
   // though the click that ends it lands on one.
@@ -560,4 +579,70 @@ test('a wrong type-in answer that is another country adds no extra sentence (#93
   await expect(page.locator('.feedback-note')).toHaveCount(0);
   await expect(page.getByRole('status')).not.toContainText('different country');
   await expect(page.getByRole('status')).toContainText(/^Wrong\. The answer is /);
+});
+
+test('the map fills the screen, re-fits on rotation and keeps the selection (#91)', async ({
+  page,
+}) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Map/ }).click();
+  await page.getByRole('button', { name: /Country → location/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+  await expect(page.locator('path.map-country')).toHaveCount(195);
+
+  const frame = page.locator('.world-map');
+  const sizeOf = async () => {
+    const box = await frame.boundingBox();
+    expect(box).toBeTruthy();
+    return box as { x: number; y: number; width: number; height: number };
+  };
+  const viewport = () => page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  const pageScrolls = () =>
+    page.evaluate(
+      () => document.documentElement.scrollHeight > window.innerHeight + 1 || window.scrollY > 0,
+    );
+
+  // Phone, upright: most of the screen, edge to edge, nothing to scroll, and the
+  // prompt and the button both on screen.
+  let screen = await viewport();
+  let box = await sizeOf();
+  expect(box.height).toBeGreaterThanOrEqual(screen.h * 0.6);
+  expect(box.width).toBeCloseTo(screen.w, 0);
+  expect(await pageScrolls()).toBe(false);
+  const confirm = page.getByRole('button', { name: /^(Confirm|Tap a country)$/ });
+  const confirmBox = await confirm.boundingBox();
+  expect((confirmBox?.y ?? 0) + (confirmBox?.height ?? 0)).toBeLessThanOrEqual(screen.h);
+  await expect(page.locator('.prompt-text')).toBeInViewport();
+
+  // A country in the opening view is a real target without any zooming.
+  const kenya = await page.locator('path[data-iso="ke"]').boundingBox();
+  expect(kenya?.width ?? 0).toBeGreaterThan(30);
+  expect(kenya?.height ?? 0).toBeGreaterThan(30);
+
+  // Select something, then turn the phone: the map re-fits, the selection stays.
+  await page.locator('path[data-iso="ke"]').dispatchEvent('click');
+  await expect(page.locator('path.map-country--selected')).toHaveAttribute('data-iso', 'ke');
+  const before = await page.locator('.world-map__svg').getAttribute('viewBox');
+  await page.setViewportSize({ width: screen.h, height: screen.w });
+  await expect
+    .poll(async () => page.locator('.world-map__svg').getAttribute('viewBox'))
+    .not.toBe(before);
+  screen = await viewport();
+  box = await sizeOf();
+  expect(box.width).toBeCloseTo(screen.w, 0);
+  expect(box.height).toBeGreaterThan(screen.h * 0.4);
+  await expect(page.locator('path.map-country--selected')).toHaveAttribute('data-iso', 'ke');
+  const [vx, vy, vw, vh] = ((await page.locator('.world-map__svg').getAttribute('viewBox')) ?? '')
+    .split(' ')
+    .map(Number) as [number, number, number, number];
+  expect(vx).toBeGreaterThanOrEqual(-1);
+  expect(vw / vh).toBeCloseTo(box.width / box.height, 1);
+  expect(vy).not.toBeNaN();
+
+  // A desktop window uses its whole width, not the narrow column.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect.poll(async () => (await sizeOf()).width).toBeCloseTo(1280, 0);
+  expect((await sizeOf()).height).toBeGreaterThanOrEqual(800 * 0.6);
+  expect(await pageScrolls()).toBe(false);
+  await expect(page.getByRole('button', { name: /^(Confirm|Tap a country)$/ })).toBeInViewport();
 });

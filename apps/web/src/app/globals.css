@@ -1795,35 +1795,6 @@ input.register-search {
   color: var(--text-primary);
 }
 
-/* Tarot-like cards: a double rule, a title, the learned count as the
-   card's number. */
-.card--tarot {
-  position: relative;
-  padding: 15px 14px;
-  background: linear-gradient(180deg, var(--surface-2), var(--surface-3));
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  box-shadow:
-    inset 0 0 0 3px var(--surface-2),
-    inset 0 0 0 4px var(--border);
-}
-
-.card--tarot:hover {
-  border-color: var(--border-accent);
-}
-
-.card--tarot .card-title {
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-}
-
-.card--tarot .card-chevron {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-accent);
-}
-
 /* The theme control: three segments, one of them the current choice. */
 .theme-setting {
   display: flex;
@@ -1864,15 +1835,20 @@ input.register-search {
   border-radius: var(--radius);
   background: var(--bg-accent);
   overflow: hidden;
-  /* The map's own aspect ratio, so the frame is the right size before the
-     geometry has arrived and nothing moves when it does. */
-  aspect-ratio: 1000 / 520;
+  /* Fills whatever the question screen leaves it (#91): the screen is a column
+     of fixed height and this is the one part that flexes. The component measures
+     the frame it is given and fits the map to it, so there is no aspect ratio
+     here to fight that. */
+  flex: 1 1 0;
+  min-height: 0;
 }
 
-.world-map--empty {
+.world-map__message {
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 100%;
+  margin: 0;
   padding: 16px;
   color: var(--text-secondary);
   font-size: 13px;
@@ -1972,7 +1948,7 @@ input.register-search {
 
 .map-controls {
   position: absolute;
-  right: 8px;
+  right: max(8px, env(safe-area-inset-right, 0px));
   bottom: 8px;
   display: flex;
   flex-direction: column;
@@ -1996,4 +1972,58 @@ input.register-search {
   .map-dot.map-country--correct .map-dot__mark {
     animation: option-pop 260ms ease-out;
   }
+}
+
+/* Map questions fill the screen (#91). Everything else on the screen is a short
+   strip above or below the map, and the map takes all that is left, edge to edge.
+   dvh, not vh, so the browser's own toolbars do not push the controls off the
+   bottom; the vh line is the fallback for browsers without dvh. The insets keep
+   the strips clear of a notch or home indicator where the browser lets the page
+   under them. */
+.app-shell--map {
+  max-width: none;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  padding: max(10px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+    max(10px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  gap: 8px;
+  overflow: hidden;
+}
+
+/* The prompt becomes one compact line: "Find on the map  Brazil". */
+.app-shell--map .prompt {
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  padding: 0;
+}
+
+.app-shell--map .prompt-text {
+  font-size: 20px;
+  letter-spacing: -0.3px;
+}
+
+/* Edge to edge: the shell's side padding is taken back, and the frame's own
+   rounding and side borders go with it. */
+.app-shell--map .world-map {
+  margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px)));
+  border-radius: 0;
+  border-inline: 0;
+}
+
+/* The strips under the map stay a thumb-reachable width on a wide window. */
+.app-shell--map > :not(.world-map):not(.quiz-header):not(.sr-only) {
+  width: 100%;
+  max-width: 480px;
+  margin-inline: auto;
+}
+
+/* Nothing to scroll on a full-screen map, so the page must not scroll or
+   rubber-band under a drag either. */
+html:has(.app-shell--map),
+body:has(.app-shell--map) {
+  overflow: hidden;
+  overscroll-behavior: none;
 }

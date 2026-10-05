@@ -24,7 +24,7 @@ import { IconBuildingBank, IconBulb, IconFlag, IconMap, IconWorld } from './icon
 export function HomeQuizCards() {
   return (
     <div className="stack">
-      <Link className="card card--tarot" href="/capitals">
+      <Link className="card" href="/capitals">
         <CardShell
           icon={<IconBuildingBank size={19} stroke={1.75} />}
           title="Capitals"
@@ -32,7 +32,7 @@ export function HomeQuizCards() {
         />
       </Link>
 
-      <Link className="card card--tarot" href="/recall">
+      <Link className="card" href="/recall">
         <CardShell
           icon={<IconMap size={19} stroke={1.75} />}
           title="Countries"
@@ -40,7 +40,7 @@ export function HomeQuizCards() {
         />
       </Link>
 
-      <Link className="card card--tarot" href="/flags">
+      <Link className="card" href="/flags">
         <CardShell
           icon={<IconFlag size={19} stroke={1.75} />}
           title="Flags"
@@ -48,7 +48,7 @@ export function HomeQuizCards() {
         />
       </Link>
 
-      <Link className="card card--tarot" href="/map">
+      <Link className="card" href="/map">
         <CardShell
           icon={<IconWorld size={19} stroke={1.75} />}
           title="Map"
@@ -56,7 +56,7 @@ export function HomeQuizCards() {
         />
       </Link>
 
-      <Link className="card card--tarot" href="/trivia">
+      <Link className="card" href="/trivia">
         <CardShell
           icon={<IconBulb size={19} stroke={1.75} />}
           title="Fun facts"

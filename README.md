@@ -688,6 +688,16 @@ generated, committed module (`apps/web/src/lib/world-map-data.ts`, Natural Earth
 `scripts/generate-world-map.mjs` — the header explains the throwaway install of
 its inputs, which are deliberately not dependencies of the repository.
 
+The map question fills the screen (#91): the page is a fixed-height column (`100dvh`)
+with the prompt and the buttons as short strips and the map taking everything
+between, edge to edge, and the page itself never scrolls. The map measures the frame
+it is given (`ResizeObserver`) and keeps a *camera* (centre and zoom relative to
+"the whole world fits") rather than a view rectangle, so rotating a phone or
+resizing a window re-fits it without losing the place or the selection. A question
+opens filling the frame (a slice to pan across on a phone held upright, the whole
+world on a wide window) centred on a neutral spot; the arithmetic is in
+`lib/world-map.ts`.
+
 ## Placeholders and TODOs
 
 These are the things that are deliberately unfinished, and what finishing them
