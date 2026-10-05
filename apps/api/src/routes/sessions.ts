@@ -8,6 +8,7 @@ import {
   type QuizTypeDefinition,
   type SessionResults,
   createAnswerSalt,
+  qualityFromTime,
   quizTypeByKey,
 } from '@cartomancer/shared';
 import type { Country, PrismaClient } from '@cartomancer/db';
@@ -16,16 +17,16 @@ import { z } from 'zod';
 import { badRequest, forbidden, notFound } from '../errors.js';
 import { type Db, isUniqueViolation, lockParticipant } from '../lib/db.js';
 import { loadAllCountries } from '../lib/countries.js';
-import { checkAnswer } from '../lib/matching.js';
 import { requestTimeZone } from '../timezone.js';
 import { loadSummary, newlyLearnedInSession, recordProgress } from '../lib/progress.js';
 import {
-  answerDomainFor,
   buildQuestions,
   clampQuestionCount,
   expectedAnswerFor,
+  judgeAnswer,
   loadFacts,
   loadFactsByIds,
+  shuffle,
   parseDifficulty,
   parseRegion,
   promptFor,
@@ -43,6 +44,13 @@ const startSessionSchema = z.object({
   difficulty: z.string().optional(),
   questionCount: z.union([z.number(), z.string()]).optional(),
   /**
+   * An explicit set of countries to ask about, in place of the usual selection
+   * (#51): the ones just missed, or the ones that need review. Region and
+   * difficulty are then ignored — they describe how to choose, and nothing is
+   * being chosen. Capped at the number of countries there are.
+   */
+  countryIds: z.array(z.coerce.number().int().positive()).min(1).max(195).optional(),
+  /**
    * Guest rotation (#70): clue id → epoch ms it was last answered, one list per
    * browser. Ignored for signed-in play, where fact_progress is the memory. The
    * cap is generous next to a library of a few hundred clues and exists only so
@@ -58,13 +66,36 @@ const answerSchema = z.object({
   sequence: z.coerce.number().int().positive(),
   answer: z.string().max(200),
   timeTakenMs: z.coerce.number().int().nonnegative().max(3_600_000).optional(),
+  /** The player took the type-in hint: a correct answer then leaves the streak alone (#53). */
+  hintUsed: z.boolean().optional(),
 });
 
 const checkSchema = z.object({
   quizTypeKey: z.string().min(1),
   countryId: z.coerce.number().int().positive(),
   answer: z.string().max(200),
+  hintUsed: z.boolean().optional(),
 });
+
+/**
+ * For a wrong answer that exactly names another country, that country's name
+ * (#53). A fuzzy near-miss is not reported: it is not an answer to anything, and
+ * naming a country the player did not clearly type would be a guess presented as
+ * fact.
+ */
+async function namedCountry(
+  prisma: PrismaClient,
+  outcome: { isMatch: boolean; matchedCountryId: number | null },
+): Promise<{ matchedCountryName?: string }> {
+  if (outcome.isMatch || outcome.matchedCountryId === null) {
+    return {};
+  }
+  const named = await prisma.country.findUnique({
+    where: { id: outcome.matchedCountryId },
+    select: { name: true },
+  });
+  return named ? { matchedCountryName: named.name } : {};
+}
 
 /** Guest session ids are client-side only; this marks them as such. */
 const GUEST_SESSION_PREFIX = 'guest-';
@@ -112,7 +143,33 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     let factsByCountryId: Map<number, string>;
     let factIdsByCountryId: Map<number, number> | undefined;
 
-    if (definition.category === 'trivia') {
+    if (body.countryIds) {
+      const requested = [...new Set(body.countryIds)];
+      const known = await app.prisma.country.findMany({
+        where: { id: { in: requested } },
+        select: { id: true },
+      });
+      if (known.length !== requested.length) {
+        throw badRequest('countryIds names a country that does not exist');
+      }
+      countryIds = requested;
+      factsByCountryId = new Map();
+      if (definition.category === 'trivia') {
+        // Only countries with a clue can be asked about; a missed trivia
+        // question had one, so this drops nothing it came from.
+        const loaded = await loadFacts(app.prisma, requested);
+        factsByCountryId = loaded.factsByCountryId;
+        factIdsByCountryId = loaded.factIdsByCountryId;
+        countryIds = requested.filter((id) => factsByCountryId.has(id));
+        if (countryIds.length === 0) {
+          throw badRequest('None of those countries has a trivia clue');
+        }
+      }
+      // The order they were asked for is the order they were missed in, which
+      // is the order they were asked in the first place: a drill that repeats
+      // the sequence invites answering from position rather than from memory.
+      countryIds = shuffle(countryIds);
+    } else if (definition.category === 'trivia') {
       const selectedFacts = await selectFacts(app.prisma, {
         userId,
         filters,
@@ -326,11 +383,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       return replay(already);
     }
 
-    const outcome = await checkAnswer(app.prisma, {
-      answer: body.answer,
-      domain: answerDomainFor(definition),
-      expectedCountryId: country.id,
-    });
+    const outcome = await judgeAnswer(app.prisma, definition, country, body.answer);
     const answeredAt = new Date();
 
     // The four writes are one unit (#54). They used to be four statements, so a
@@ -363,6 +416,8 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           quizTypeKey: session.quizType.key,
           countryId: country.id,
           wasCorrect: outcome.isMatch,
+          hintUsed: body.hintUsed,
+          quality: qualityFromTime(definition.format, body.timeTakenMs),
           answeredAt,
         });
         if (definition.category === 'trivia' && question.factId) {
@@ -394,9 +449,11 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       correctCountryName: country.name,
       correctIsoCode: country.isoCode,
       matchedBy: outcome.matchedBy,
+      ...(await namedCountry(app.prisma, outcome)),
       currentStreak: progress.currentStreak,
       isLearned: progress.isLearned,
       newlyLearned: progress.newlyLearned,
+      nextReviewInDays: progress.dueInDays,
     };
     return result;
   });
@@ -411,11 +468,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     if (!country) {
       throw notFound(`Unknown country ${body.countryId}`);
     }
-    const outcome = await checkAnswer(app.prisma, {
-      answer: body.answer,
-      domain: answerDomainFor(definition),
-      expectedCountryId: country.id,
-    });
+    const outcome = await judgeAnswer(app.prisma, definition, country, body.answer);
     const result: AnswerResult = {
       wasCorrect: outcome.isMatch,
       correctAnswer: expectedAnswerFor(definition, country),
@@ -423,6 +476,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       correctCountryName: country.name,
       correctIsoCode: country.isoCode,
       matchedBy: outcome.matchedBy,
+      ...(await namedCountry(app.prisma, outcome)),
       currentStreak: null,
       isLearned: null,
       newlyLearned: false,
@@ -628,7 +682,6 @@ async function buildResults(
   const newlyLearned = await newlyLearnedInSession(prisma, {
     userId,
     quizTypeId: session.quizTypeId,
-    quizTypeKey: session.quizType.key,
     countryIds: session.questions.map((question) => question.countryId),
     since: session.createdAt,
   });

@@ -469,19 +469,38 @@ with the build tree deleted.
 
 ## How the mechanics work
 
-**Learned.** Three correct answers in a row for a (user, country, quiz type)
-marks that country learned; one wrong answer resets the streak to zero, which
-demotes it again. `is_learned` is never written independently — it is
-recomputed as `current_streak >= threshold` on every answer, so it cannot drift.
-Active recall is the exception: a single successful recall is enough.
+**Learned and spaced repetition (#50).** Each (user, country, quiz type) in
+`progress` carries a review schedule: an interval in days, an ease factor, and
+`due_at`. The rules are one pure function, `nextSchedule` in
+`packages/shared/src/scheduling.ts`, a simplified SM-2: the first success is due
+in 1 day, the second in 6, then each interval is the last times the ease
+(starting at 2.5); a wrong answer collapses the interval to nothing (due at once)
+and costs ease; a correct answer taken with the type-in hint (#53) changes
+neither streak nor interval, is due tomorrow and costs a little ease. How fast an
+answer came (`timeTakenMs`, with more allowance for typing than for tapping)
+nudges the ease up or down, so slow-but-right is not treated as known.
 
-**Rotation.** One shared "last seen" pool per (user, quiz type), tracked by
-`progress.last_answered_at` and *not* reset per filter. A session's questions
-are the eligible countries (after the region/difficulty filter) ordered by
-`last_answered_at ASC NULLS FIRST` — never-seen first, then oldest-seen — so
-once you have been through a pool it cycles naturally. Ties are shuffled, which
-makes each new cycle feel like a reshuffle. `last_answered_at` is stamped on
-wrong answers too, otherwise a missed country would come straight back.
+A country is **learned** when its interval is at least 14 days
+(`LEARNED_INTERVAL_DAYS`; active recall, whose single success is the whole claim,
+learns at its first, 1 day). With the default ease that is the third unhinted
+success in a row (1, 6, 15 days), so it feels the same on the way in, but it is a
+statement about retention: a lapse takes it away. `is_learned` and `learned_at`
+are recomputed from the interval on every answer (`recordProgress`), never
+written on their own, and "newly learned" on the results is `learned_at` inside
+the session. `current_streak` is kept as "correct in a row so far". Learned does
+not expire by itself while nobody answers: what changes is that overdue
+countries are asked first, and one answered wrong is no longer learned. The
+migration backfills the schedule from each row's streak (so nobody's progress
+moves) with due dates counted from the last answer.
+
+**Rotation.** One pool per (user, quiz type), *not* reset per filter. A
+session's questions are the eligible countries (after the region/difficulty
+filter) ordered by what is due: countries whose review has come round first, most
+overdue first (a miss is due at once, so it leads the next round); then countries
+never asked; then the rest, soonest-due first, which is also how a pool smaller
+than the round cycles back through itself. Ties are shuffled, which makes each
+new cycle feel like a reshuffle. `last_answered_at` is still stamped on every
+answer, right or wrong.
 
 **Answer matching.** Exact first: the typed answer is normalised (case,
 accents, punctuation, `&`, `St.`/`the`) and compared against the canonical name
@@ -655,6 +674,14 @@ once; a later load finds the cookie current and does nothing.
 **Adding a quiz type** is a data change: a row in `quiz_types` plus an entry in
 `QUIZ_TYPES` in `packages/shared/src/taxonomy.ts` describing its direction.
 Rendering branches on category + format (+ direction), never on a specific key.
+
+**Map mode (#52)** is the one format whose answer is not text: a tap on a world
+map is sent as the ISO alpha-2 code of the country tapped and judged by exact
+comparison (`judgeAnswer`), so there is no matching. The map outlines are a
+generated, committed module (`apps/web/src/lib/world-map-data.ts`, Natural Earth
+1:50m, loaded on demand when a map question first needs it); regenerate it with
+`scripts/generate-world-map.mjs` — the header explains the throwaway install of
+its inputs, which are deliberately not dependencies of the repository.
 
 ## Placeholders and TODOs
 

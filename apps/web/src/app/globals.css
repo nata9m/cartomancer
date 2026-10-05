@@ -9,48 +9,82 @@
  */
 
 :root {
-  --surface-0: #f7f7f5;
-  --surface-1: #f0f0ee;
-  --surface-2: #ffffff;
-  --surface-3: #fafafa;
-  --text-primary: #1a1a1a;
-  --text-secondary: #6b6b68;
-  --text-muted: #9c9c98;
-  --text-accent: #185fa5;
-  --bg-accent: #e6f1fb;
-  --border: #e5e5e3;
-  --border-strong: #c7c7c3;
-  --border-accent: #378add;
-  --text-success: #3b6d11;
-  --bg-success: #eaf3de;
-  --border-success: #639922;
-  --text-danger: #a32d2d;
-  --bg-danger: #fcebeb;
-  --border-danger: #e24b4a;
+  color-scheme: light dark;
+  /* Parchment, ink and map-green (#57). Every text pair below is held to WCAG AA
+     by lib/theme-contrast.test.ts, so a tweak that breaks contrast fails there. */
+  --surface-0: #f5f0e4;
+  --surface-1: #ebe4d1;
+  --surface-2: #fbf8f0;
+  --surface-3: #f7f2e6;
+  --text-primary: #1c2333;
+  --text-secondary: #565a66;
+  --text-muted: #5d616b;
+  --text-accent: #1b4f8a;
+  --bg-accent: #dce8f3;
+  --border: #ddd5c0;
+  --border-strong: #b9b09a;
+  --border-accent: #2f6fb0;
+  --text-success: #2f5d1f;
+  --bg-success: #e1edcf;
+  --border-success: #5c8a2d;
+  --text-danger: #9b2c2c;
+  --bg-danger: #f6e1dc;
+  --border-danger: #cf4a47;
   --radius: 8px;
+  --font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
 }
 
+/* Pinned light: the OS's dark preference must not leak through. */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+/* The dark tokens appear twice, once for a system that prefers dark and once for
+   a player who chose it: CSS has no way to share a block between a media query
+   and an attribute selector. The theme test fails if the two copies drift. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --surface-0: #17171a;
-    --surface-1: #1f1f22;
-    --surface-2: #26262a;
-    --surface-3: #2c2c30;
-    --text-primary: #f0f0ee;
-    --text-secondary: #b4b2a9;
-    --text-muted: #888780;
-    --text-accent: #85b7eb;
-    --bg-accent: #0c447c;
-    --border: #3a3a3e;
-    --border-strong: #4c4c50;
-    --border-accent: #378add;
-    --text-success: #97c459;
-    --bg-success: #27500a;
-    --border-success: #639922;
-    --text-danger: #f09595;
-    --bg-danger: #791f1f;
-    --border-danger: #e24b4a;
+  :root:not([data-theme='light']) {
+    --surface-0: #12161f;
+    --surface-1: #1a1f2b;
+    --surface-2: #212736;
+    --surface-3: #272e3f;
+    --text-primary: #ece8dc;
+    --text-secondary: #b6b5ad;
+    --text-muted: #9a9a94;
+    --text-accent: #8fbbea;
+    --bg-accent: #14395f;
+    --border: #343b4c;
+    --border-strong: #4a5266;
+    --border-accent: #4c93d8;
+    --text-success: #a3cc6c;
+    --bg-success: #26441a;
+    --border-success: #6a9b35;
+    --text-danger: #f0a0a0;
+    --bg-danger: #6c2424;
+    --border-danger: #e0605d;
   }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --surface-0: #12161f;
+  --surface-1: #1a1f2b;
+  --surface-2: #212736;
+  --surface-3: #272e3f;
+  --text-primary: #ece8dc;
+  --text-secondary: #b6b5ad;
+  --text-muted: #9a9a94;
+  --text-accent: #8fbbea;
+  --bg-accent: #14395f;
+  --border: #343b4c;
+  --border-strong: #4a5266;
+  --border-accent: #4c93d8;
+  --text-success: #a3cc6c;
+  --bg-success: #26441a;
+  --border-success: #6a9b35;
+  --text-danger: #f0a0a0;
+  --bg-danger: #6c2424;
+  --border-danger: #e0605d;
 }
 
 * {
@@ -645,7 +679,6 @@ input.account-input {
 .progress-fill {
   height: 100%;
   background: var(--border-accent);
-  transition: width 160ms ease-out;
 }
 
 .progress-counter {
@@ -1657,4 +1690,407 @@ input.register-search {
 .button-danger-solid:hover:not(:disabled) {
   background: var(--border-danger);
   opacity: 0.92;
+}
+
+/* Quiz-screen motion and accessibility (#56) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.prompt:focus,
+.clue-card:focus {
+  outline: none;
+}
+
+.learned-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-accent);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Every animation lives here, so a player who asked for less motion gets none. */
+@media (prefers-reduced-motion: no-preference) {
+  .progress-fill {
+    transition: width 160ms ease-out;
+  }
+
+  .option--correct {
+    animation: option-pop 260ms ease-out;
+  }
+
+  .option--wrong,
+  .result-row--wrong {
+    animation: option-shake 300ms ease-in-out;
+  }
+
+  .learned-note {
+    animation: learned-in 420ms cubic-bezier(0.2, 0.9, 0.3, 1.3);
+  }
+
+  .learned-note svg {
+    animation: learned-sparkle 700ms ease-out;
+  }
+}
+
+@keyframes option-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes option-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes learned-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes learned-sparkle {
+  0% {
+    transform: rotate(-30deg) scale(0.5);
+  }
+  60% {
+    transform: rotate(15deg) scale(1.3);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* Type-in hint and feedback notes (#53) */
+.answer-hint {
+  margin: 0;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  white-space: pre;
+  color: var(--text-primary);
+}
+
+.feedback-note {
+  margin: 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.feedback-note em {
+  font-style: italic;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* ── Identity (#57) ─────────────────────────────────────────────────────── */
+
+/* A serif for the things that are titles. System faces only: a web font would be
+   an external request on a screen that otherwise makes none. */
+.app-title,
+.screen-title,
+.results-score,
+.card--tarot .card-title,
+.prompt-text {
+  font-family: var(--font-display);
+}
+
+.app-title {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-accent);
+}
+
+/* Contour lines and a compass rose behind the home screen, drawn once as a mask
+   and filled from the theme's accent, so both themes get it for free. It is
+   decoration only: behind the content, no pointer events, hidden from the
+   accessibility tree by being a pseudo-element. */
+.home-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.home-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 420px;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--text-accent);
+  opacity: 0.1;
+  -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 412 420%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.2%22%3E %3Cpath d=%22M262 40c38-18 92 6 108 48s-4 90-44 112-96 18-122-18-24-92 10-124c14-12 30-20 48-18z%22/%3E %3Cpath d=%22M266 62c30-12 72 6 84 38s-4 72-36 90-76 12-96-16-18-72 8-98c12-10 24-16 40-14z%22/%3E %3Cpath d=%22M270 84c22-8 52 6 60 28s-4 54-28 66-56 8-70-12-12-52 6-72c8-8 18-12 32-10z%22/%3E %3Cpath d=%22M274 106c14-5 34 4 38 18s-4 36-20 44-38 4-46-10-6-34 4-46c6-5 14-8 24-6z%22/%3E %3Cpath d=%22M-10 250c40-30 96-26 130 6s30 90-6 122-92 36-130 6%22/%3E %3Cpath d=%22M-10 276c30-20 70-16 94 8s22 66-4 90-66 26-92 6%22/%3E %3Cpath d=%22M-10 302c20-12 46-8 60 8s14 42-2 56-42 16-58 4%22/%3E %3Cg transform=%22translate(80 110)%22 stroke-width=%221.4%22%3E %3Ccircle r=%2246%22/%3E%3Ccircle r=%2236%22 stroke-dasharray=%222 4%22/%3E %3Cpath d=%22M0-62 9-9 62 0 9 9 0 62-9 9-62 0-9-9z%22/%3E %3Cpath d=%22M0-44 5-5 44 0 5 5 0 44-5 5-44 0-5-5z%22 transform=%22rotate(45)%22/%3E %3C/g%3E %3C/svg%3E')
+    center top / 100% auto no-repeat;
+  mask: url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 412 420%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.2%22%3E %3Cpath d=%22M262 40c38-18 92 6 108 48s-4 90-44 112-96 18-122-18-24-92 10-124c14-12 30-20 48-18z%22/%3E %3Cpath d=%22M266 62c30-12 72 6 84 38s-4 72-36 90-76 12-96-16-18-72 8-98c12-10 24-16 40-14z%22/%3E %3Cpath d=%22M270 84c22-8 52 6 60 28s-4 54-28 66-56 8-70-12-12-52 6-72c8-8 18-12 32-10z%22/%3E %3Cpath d=%22M274 106c14-5 34 4 38 18s-4 36-20 44-38 4-46-10-6-34 4-46c6-5 14-8 24-6z%22/%3E %3Cpath d=%22M-10 250c40-30 96-26 130 6s30 90-6 122-92 36-130 6%22/%3E %3Cpath d=%22M-10 276c30-20 70-16 94 8s22 66-4 90-66 26-92 6%22/%3E %3Cpath d=%22M-10 302c20-12 46-8 60 8s14 42-2 56-42 16-58 4%22/%3E %3Cg transform=%22translate(80 110)%22 stroke-width=%221.4%22%3E %3Ccircle r=%2246%22/%3E%3Ccircle r=%2236%22 stroke-dasharray=%222 4%22/%3E %3Cpath d=%22M0-62 9-9 62 0 9 9 0 62-9 9-62 0-9-9z%22/%3E %3Cpath d=%22M0-44 5-5 44 0 5 5 0 44-5 5-44 0-5-5z%22 transform=%22rotate(45)%22/%3E %3C/g%3E %3C/svg%3E')
+    center top / 100% auto no-repeat;
+}
+
+/* Tarot-like cards: a double rule, a serif title, the learned count as the
+   card's number. */
+.card--tarot {
+  position: relative;
+  padding: 15px 14px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-3));
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 0 0 3px var(--surface-2),
+    inset 0 0 0 4px var(--border);
+}
+
+.card--tarot:hover {
+  border-color: var(--border-accent);
+}
+
+.card--tarot .card-title {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.card-number {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-accent);
+}
+
+.card-number small {
+  margin-left: 1px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.card--tarot .card-chevron {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-accent);
+}
+
+/* The theme control: three segments, one of them the current choice. */
+.theme-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.theme-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 2px;
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.theme-option {
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.theme-option--active {
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: 0 0 0 0.5px var(--border-strong);
+}
+
+/* ── Map mode (#52) ─────────────────────────────────────────────────────── */
+
+.world-map {
+  position: relative;
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-accent);
+  overflow: hidden;
+  /* The map's own aspect ratio, so the frame is the right size before the
+     geometry has arrived and nothing moves when it does. */
+  aspect-ratio: 1000 / 520;
+}
+
+.world-map--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.world-map__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The map handles its own drags and pinches; the page must not scroll or zoom
+     under them. */
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.world-map__svg--locked {
+  cursor: default;
+}
+
+.map-land {
+  fill: var(--surface-1);
+  stroke: var(--border-strong);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-country {
+  fill: var(--surface-2);
+  stroke: var(--border-strong);
+  stroke-width: 0.6;
+  /* Borders stay hairlines at any zoom instead of swelling with it. */
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+
+.world-map__svg--locked .map-country {
+  cursor: default;
+}
+
+.map-country:hover {
+  fill: var(--surface-3);
+}
+
+.map-country--selected,
+.map-country--selected:hover {
+  fill: var(--border-accent);
+  stroke: var(--text-accent);
+  stroke-width: 1.2;
+}
+
+.map-country--correct,
+.map-country--correct:hover {
+  fill: var(--border-success);
+  stroke: var(--text-success);
+  stroke-width: 1.4;
+}
+
+.map-country--wrong,
+.map-country--wrong:hover {
+  fill: var(--border-danger);
+  stroke: var(--text-danger);
+  stroke-width: 1.4;
+}
+
+.map-dot {
+  cursor: pointer;
+}
+
+.map-dot__hit {
+  fill: transparent;
+}
+
+.map-dot__mark {
+  fill: var(--text-secondary);
+  stroke: var(--surface-2);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-dot.map-country--selected .map-dot__mark {
+  fill: var(--border-accent);
+  stroke: var(--text-accent);
+}
+
+.map-dot.map-country--correct .map-dot__mark {
+  fill: var(--border-success);
+  stroke: var(--text-success);
+}
+
+.map-dot.map-country--wrong .map-dot__mark {
+  fill: var(--border-danger);
+  stroke: var(--text-danger);
+}
+
+.map-controls {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.map-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--surface-2);
+  border: 0.5px solid var(--border-strong);
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .map-country--correct,
+  .map-dot.map-country--correct .map-dot__mark {
+    animation: option-pop 260ms ease-out;
+  }
+}
+
+/* The spaced-repetition schedule after a correct answer (#50). */
+.review-note {
+  margin: 0;
+  font-size: 12px;
+  text-align: center;
+  color: var(--text-secondary);
 }

@@ -22,4 +22,9 @@ export {
   IconLogout, // ti-logout
   IconUser, // ti-user
   IconTrash, // ti-trash
+  IconSparkles, // ti-sparkles
+  IconRefresh, // ti-refresh
+  IconWorld, // ti-world
+  IconPlus, // ti-plus
+  IconMinus, // ti-minus
 } from '@tabler/icons-react';

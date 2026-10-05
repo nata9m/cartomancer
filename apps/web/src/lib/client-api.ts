@@ -94,6 +94,8 @@ export interface StartQuizInput {
   region?: string;
   difficulty?: string;
   questionCount?: number;
+  /** Ask about exactly these countries, instead of choosing by the filters (#51). */
+  countryIds?: number[];
   /** Guest trivia rotation: clue id → epoch ms last answered (#70). */
   seenFacts?: Record<string, number>;
 }
@@ -110,7 +112,7 @@ export const loadQuizSession = (sessionId: string): Promise<PersistedSession> =>
 
 export const submitAnswer = (
   sessionId: string,
-  body: { sequence: number; answer: string; timeTakenMs?: number },
+  body: { sequence: number; answer: string; timeTakenMs?: number; hintUsed?: boolean },
 ): Promise<AnswerResult> =>
   bff<AnswerResult>(`sessions/${sessionId}/answers`, { method: 'POST', body, retry: true });
 
@@ -118,6 +120,7 @@ export const checkAnswerAsGuest = (body: {
   quizTypeKey: string;
   countryId: number;
   answer: string;
+  hintUsed?: boolean;
 }): Promise<AnswerResult> =>
   bff<AnswerResult>('answers/check', { method: 'POST', body, retry: true });
 

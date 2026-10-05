@@ -48,6 +48,13 @@ export interface QuizQuestion {
    * never a correctness problem.
    */
   answerHashes?: string[];
+  /**
+   * Type-in formats only: the optional hint, first letter plus letter count
+   * ("K _ _ _ _ _ _ _ _ _"), see `answerHintFor` (#53). Telling the browser this
+   * is no leak worth defending: the answer is, by definition, one the player
+   * could be told, and the hashes above already let the browser check a guess.
+   */
+  answerHint?: string;
 }
 
 export interface QuizSession {
@@ -97,11 +104,24 @@ export interface AnswerResult {
    * a lost response (#58), which re-reads rather than re-matches.
    */
   matchedBy: 'exact' | 'alias' | 'fuzzy' | 'none' | 'replay';
+  /**
+   * A wrong answer that nonetheless names a country exactly — "Austria" typed
+   * for Australia, or Vienna typed for Canberra — carries that country's name,
+   * so the reveal can say what was typed *is* something, just not this (#53).
+   * Absent otherwise, and on a replay, which has no typed text to talk about.
+   */
+  matchedCountryName?: string;
   /** Null for guests — nothing is persisted, so there is no streak. */
   currentStreak: number | null;
   isLearned: boolean | null;
-  /** True when this answer is what pushed the country over the threshold. */
+  /** True when this answer is what moved the country into "learned". */
   newlyLearned: boolean;
+  /**
+   * Spaced repetition (#50): days until this country is due for review again,
+   * from this answer. 0 after a miss, when it is simply back next round. Absent
+   * for guests, who have no schedule.
+   */
+  nextReviewInDays?: number;
 }
 
 /**
@@ -222,6 +242,23 @@ export interface ProgressSummary {
     flags: number;
   };
   totalCountries: number;
+  /** Countries whose last answer was missed, ready to drill (#51); null when there are none. */
+  review: ReviewSummary | null;
+}
+
+/**
+ * What a "needs review" round would be. Progress is per quiz type, so a review
+ * round is too: this is the quiz type with the most countries to review (the
+ * most recently missed one on a tie), and `countryIds` are up to a round's worth
+ * of them, most recently missed first.
+ */
+export interface ReviewSummary {
+  /** How many countries need review in `quizTypeKey`, which can exceed `countryIds`. */
+  count: number;
+  quizTypeKey: string;
+  quizTypeName: string;
+  directionLabel: string;
+  countryIds: number[];
 }
 
 /**
