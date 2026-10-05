@@ -1859,7 +1859,11 @@ input.register-search {
 
 .theme-toggle {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* However many options there are, they share the width evenly: it was a fixed
+     three columns for System / Light / Dark, which left a blank third once System
+     went (#105). */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 2px;
   padding: 2px;
   border: 0.5px solid var(--border-strong);
