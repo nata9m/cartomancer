@@ -58,13 +58,36 @@ const answerSchema = z.object({
   sequence: z.coerce.number().int().positive(),
   answer: z.string().max(200),
   timeTakenMs: z.coerce.number().int().nonnegative().max(3_600_000).optional(),
+  /** The player took the type-in hint: a correct answer then leaves the streak alone (#53). */
+  hintUsed: z.boolean().optional(),
 });
 
 const checkSchema = z.object({
   quizTypeKey: z.string().min(1),
   countryId: z.coerce.number().int().positive(),
   answer: z.string().max(200),
+  hintUsed: z.boolean().optional(),
 });
+
+/**
+ * For a wrong answer that exactly names another country, that country's name
+ * (#53). A fuzzy near-miss is not reported: it is not an answer to anything, and
+ * naming a country the player did not clearly type would be a guess presented as
+ * fact.
+ */
+async function namedCountry(
+  prisma: PrismaClient,
+  outcome: { isMatch: boolean; matchedCountryId: number | null },
+): Promise<{ matchedCountryName?: string }> {
+  if (outcome.isMatch || outcome.matchedCountryId === null) {
+    return {};
+  }
+  const named = await prisma.country.findUnique({
+    where: { id: outcome.matchedCountryId },
+    select: { name: true },
+  });
+  return named ? { matchedCountryName: named.name } : {};
+}
 
 /** Guest session ids are client-side only; this marks them as such. */
 const GUEST_SESSION_PREFIX = 'guest-';
@@ -363,6 +386,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           quizTypeKey: session.quizType.key,
           countryId: country.id,
           wasCorrect: outcome.isMatch,
+          hintUsed: body.hintUsed,
           answeredAt,
         });
         if (definition.category === 'trivia' && question.factId) {
@@ -394,6 +418,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       correctCountryName: country.name,
       correctIsoCode: country.isoCode,
       matchedBy: outcome.matchedBy,
+      ...(await namedCountry(app.prisma, outcome)),
       currentStreak: progress.currentStreak,
       isLearned: progress.isLearned,
       newlyLearned: progress.newlyLearned,
@@ -423,6 +448,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       correctCountryName: country.name,
       correctIsoCode: country.isoCode,
       matchedBy: outcome.matchedBy,
+      ...(await namedCountry(app.prisma, outcome)),
       currentStreak: null,
       isLearned: null,
       newlyLearned: false,
