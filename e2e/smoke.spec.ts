@@ -319,6 +319,17 @@ test('the theme is Light or Dark, Light by default, and the OS has no say (#92)'
   await expect(page.getByRole('radio')).toHaveCount(2);
   await expect(page.getByRole('radio', { name: 'System' })).toHaveCount(0);
 
+  // The two segments split the bar evenly, with no empty third (#105).
+  const bar = await page.locator('.theme-toggle').boundingBox();
+  const light = await page.getByRole('radio', { name: 'Light' }).boundingBox();
+  const dark = await page.getByRole('radio', { name: 'Dark' }).boundingBox();
+  expect(Math.abs((light?.width ?? 0) - (dark?.width ?? 1))).toBeLessThan(1);
+  expect((light?.x ?? 0) + (light?.width ?? 0) + 2).toBeCloseTo(dark?.x ?? 0, 0);
+  // The right edge of Dark is the bar's right edge less its padding and border.
+  expect(
+    Math.abs((dark?.x ?? 0) + (dark?.width ?? 0) + 2.5 - ((bar?.x ?? 0) + (bar?.width ?? 0))),
+  ).toBeLessThan(1);
+
   // The default is Light: grey page, whatever the OS says.
   await expect(html).toHaveAttribute('data-theme', 'light');
   await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked();
