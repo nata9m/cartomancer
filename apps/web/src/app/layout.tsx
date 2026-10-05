@@ -9,32 +9,19 @@ export const metadata: Metadata = {
   description: 'Capitals, countries, and flags',
 };
 
-/**
- * The browser chrome colour follows the chosen theme (#57). A pinned theme gets
- * one colour; "system" gets both, keyed to the OS preference, as before.
- */
+/** The browser chrome colour is the chosen theme's page background (#57, #92). */
 export async function generateViewport(): Promise<Viewport> {
   const choice = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
-  return {
-    width: 'device-width',
-    initialScale: 1,
-    themeColor:
-      choice === 'system'
-        ? [
-            { media: '(prefers-color-scheme: light)', color: THEME_COLORS.light },
-            { media: '(prefers-color-scheme: dark)', color: THEME_COLORS.dark },
-          ]
-        : THEME_COLORS[choice],
-  };
+  return { width: 'device-width', initialScale: 1, themeColor: THEME_COLORS[choice] };
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Read on the server so the first paint is already the right theme: with the
-  // choice in storage, the page would render in the OS theme and then flip.
+  // choice in storage, the page would render in the default and then flip.
   const choice = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
 
   return (
-    <html lang="en" data-theme={choice === 'system' ? undefined : choice}>
+    <html lang="en" data-theme={choice}>
       <body>
         <TimeZoneCookie />
         {children}

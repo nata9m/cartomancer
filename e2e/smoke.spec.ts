@@ -276,51 +276,76 @@ test('a guest can practise exactly the countries they missed (#51)', async ({ pa
   }
 });
 
-test('the theme can be chosen, sticks without a flash, and wins over the OS (#57)', async ({
+test('the theme is Light or Dark, Light by default, and the OS has no say (#92)', async ({
   page,
   context,
   request,
 }) => {
+  // A dark OS must not make the app dark.
   await page.emulateMedia({ colorScheme: 'dark' });
   await continueAsGuest(page);
   const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const html = page.locator('html');
 
-  // System follows the OS: no attribute, and the dark palette from the media query.
-  await expect(html).not.toHaveAttribute('data-theme', /.*/);
-  expect(await background()).toBe('rgb(18, 22, 31)');
+  // Two segments only, and no "System".
+  await expect(page.getByRole('radio')).toHaveCount(2);
+  await expect(page.getByRole('radio', { name: 'System' })).toHaveCount(0);
 
-  // Pinning light beats a dark OS.
-  await page.getByRole('radio', { name: 'Light' }).click();
+  // The default is Light: grey page, whatever the OS says.
   await expect(html).toHaveAttribute('data-theme', 'light');
-  expect(await background()).toBe('rgb(245, 240, 228)');
   await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked();
+  expect(await background()).toBe('rgb(247, 247, 245)');
 
-  // The cookie is what the server renders from: a request with no JavaScript at
-  // all gets the theme in the first bytes, which is the "no flash".
-  await expect
-    .poll(async () => (await context.cookies()).find((c) => c.name === 'cartomancer-theme')?.value)
-    .toBe('light');
-  const cookie = (await context.cookies()).map((c) => `${c.name}=${c.value}`).join('; ');
-  const served = await request.get('/', { headers: { cookie } });
-  expect(await served.text()).toMatch(/<html[^>]*data-theme="light"/);
+  // No serif anywhere: the title and the quiz prompt use the body's sans-serif.
+  const fontOf = (selector: string) =>
+    page.evaluate(
+      (sel) => getComputedStyle(document.querySelector(sel) as Element).fontFamily,
+      selector,
+    );
+  const bodyFont = await fontOf('body');
+  expect(bodyFont).toContain('sans-serif');
+  expect(await fontOf('.app-title')).toBe(bodyFont);
+  expect(await fontOf('.card-title')).toBe(bodyFont);
 
-  // And so does the browser chrome colour.
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f5f0e4');
-
-  // Pinning dark, on a light OS.
-  await page.emulateMedia({ colorScheme: 'light' });
+  // Choosing Dark: neutral charcoal, and it sticks in the cookie.
   await page.getByRole('radio', { name: 'Dark' }).click();
   await expect(html).toHaveAttribute('data-theme', 'dark');
-  expect(await background()).toBe('rgb(18, 22, 31)');
+  expect(await background()).toBe('rgb(23, 23, 26)');
+  await expect
+    .poll(async () => (await context.cookies()).find((c) => c.name === 'cartomancer-theme')?.value)
+    .toBe('dark');
+
+  // The cookie is what the server renders from: a request with no JavaScript gets
+  // the theme in the first bytes (the "no flash"), and the matching chrome colour.
+  const cookie = (await context.cookies()).map((c) => `${c.name}=${c.value}`).join('; ');
+  const served = await (await request.get('/', { headers: { cookie } })).text();
+  expect(served).toMatch(/<html[^>]*data-theme="dark"/);
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#17171a');
   await page.reload();
   await expect(html).toHaveAttribute('data-theme', 'dark');
   await expect(page.getByRole('radio', { name: 'Dark' })).toBeChecked();
 
-  // Back to System: the attribute goes, and the OS decides again.
-  await page.getByRole('radio', { name: 'System' }).click();
-  await expect(html).not.toHaveAttribute('data-theme', /.*/);
-  expect(await background()).toBe('rgb(245, 240, 228)');
+  // And the quiz prompt is sans-serif too.
+  await page.getByRole('link', { name: /^Capitals/ }).click();
+  await page.getByRole('button', { name: /Pick the capital city of the country shown/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+  expect(await fontOf('.prompt-text')).toBe(bodyFont);
+
+  // Back to Light.
+  await page.goto('/');
+  await page.getByRole('radio', { name: 'Light' }).click();
+  await expect(html).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f7f7f5');
+  expect(await background()).toBe('rgb(247, 247, 245)');
+});
+
+test('an old "system" cookie, or a junk one, gets Light (#92)', async ({ page, context }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  for (const value of ['system', 'sepia']) {
+    await context.addCookies([{ name: 'cartomancer-theme', value, url: 'http://localhost:13000' }]);
+    await continueAsGuest(page);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  }
 });
 
 test('a guest plays a map round: select, confirm, and see where it was (#52)', async ({

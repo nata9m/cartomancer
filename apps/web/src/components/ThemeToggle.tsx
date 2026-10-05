@@ -5,7 +5,7 @@ import { setThemeAction } from '@/app/actions';
 import { THEME_CHOICES, THEME_LABELS, type ThemeChoice } from '@/lib/theme';
 
 /**
- * System / Light / Dark (#57).
+ * Light / Dark (#57, #92).
  *
  * The attribute is set straight away so the page changes under the finger, and
  * the server action stores the cookie, which is what makes it stick and what the
@@ -22,12 +22,7 @@ export function ThemeToggle({ initial }: { initial: ThemeChoice }) {
 
   function choose(next: ThemeChoice): void {
     setChoice(next);
-    const root = document.documentElement;
-    if (next === 'system') {
-      root.removeAttribute('data-theme');
-    } else {
-      root.setAttribute('data-theme', next);
-    }
+    document.documentElement.setAttribute('data-theme', next);
     startTransition(() => setThemeAction(next));
   }
 

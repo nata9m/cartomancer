@@ -22,8 +22,7 @@ function block(selectorStart: string): Record<string, string> {
 }
 
 const light = block(':root {');
-const darkAttribute = block(":root[data-theme='dark']");
-const darkMedia = block(":root:not([data-theme='light'])");
+const dark = block(":root[data-theme='dark']");
 
 function luminance(hex: string): number {
   const channel = (offset: number) => {
@@ -57,7 +56,7 @@ const pairs: [string, string, number][] = [
 
 describe.each([
   ['light', light],
-  ['dark', darkAttribute],
+  ['dark', dark],
 ])('%s theme contrast (WCAG AA)', (_name, tokens) => {
   it.each(pairs)('%s on %s is at least %s:1', (foreground, background, minimum) => {
     const fg = tokens[foreground];
@@ -68,15 +67,22 @@ describe.each([
   });
 });
 
-describe('the two dark blocks', () => {
-  it('define the same tokens with the same values', () => {
-    expect(Object.keys(darkMedia).length).toBeGreaterThan(10);
-    expect(darkMedia).toEqual(darkAttribute);
-  });
-  it('override every colour token the light theme defines', () => {
-    const colours = Object.keys(light);
-    for (const token of colours) {
-      expect(darkAttribute[token], token).toBeDefined();
+describe('the stylesheet', () => {
+  it('overrides every colour token the light theme defines in dark', () => {
+    for (const token of Object.keys(light)) {
+      if (token === '--radius') continue;
+      expect(dark[token], token).toBeDefined();
     }
+  });
+  it('does not consult the OS colour preference: the theme is chosen, not followed (#92)', () => {
+    expect(css).not.toContain('prefers-color-scheme');
+  });
+  it("uses no serif: every title is the app's own sans-serif (#92)", () => {
+    expect(css.replace(/sans-serif/g, '')).not.toMatch(/serif/i);
+    expect(css).not.toContain('--font-display');
+  });
+  it('has the original neutral palettes', () => {
+    expect(light['--surface-0']).toBe('#f7f7f5');
+    expect(dark['--surface-0']).toBe('#17171a');
   });
 });
