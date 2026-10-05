@@ -1,9 +1,24 @@
 import { COUNTRIES } from '@cartomancer/shared';
 import { describe, expect, it } from 'vitest';
 import { WORLD_MAP } from './world-map-data';
-import { clampView, fullView, MAX_ZOOM, panBy, viewBoxOf, zoomAt, zoomLevel } from './world-map';
+import {
+  clampCamera,
+  containScale,
+  coverScale,
+  initialCamera,
+  MAX_ZOOM,
+  panBy,
+  scaleOf,
+  viewBoxOf,
+  viewOf,
+  worldCamera,
+  zoomAt,
+} from './world-map';
 
-const data = { width: 1000, height: 520 };
+const map = { width: 1000, height: 520 };
+const phone = { width: 390, height: 560 };
+const desktop = { width: 1280, height: 720 };
+const landscapePhone = { width: 760, height: 330 };
 
 describe('the world map data', () => {
   it('has exactly one outline for each of the 195 countries', () => {
@@ -41,72 +56,136 @@ describe('the world map data', () => {
   });
 });
 
-describe('fullView', () => {
-  it('is the whole map at zoom 1', () => {
-    const view = fullView(data);
-    expect(view).toEqual({ x: 0, y: 0, w: 1000, h: 520 });
-    expect(zoomLevel(view, data)).toBe(1);
-    expect(viewBoxOf(view)).toBe('0 0 1000 520');
+describe('fitting the map to a frame (#91)', () => {
+  it('has the whole world fit at contain scale, and cover the frame at cover scale', () => {
+    expect(containScale(map, phone)).toBeCloseTo(0.39);
+    expect(coverScale(map, phone)).toBeCloseTo(560 / 520);
+    expect(containScale(map, desktop)).toBeCloseTo(1.28);
+    expect(coverScale(map, desktop)).toBeCloseTo(720 / 520);
+  });
+
+  it('opens a phone held upright on a slice at the full height, not a postage stamp', () => {
+    const camera = initialCamera(map, phone);
+    const view = viewOf(camera, map, phone);
+    expect(view.h).toBeCloseTo(520);
+    expect(view.w).toBeLessThan(400);
+    // About three times the size a country would be with the world squeezed to the width.
+    expect(scaleOf(camera, map, phone)).toBeGreaterThan(2.5 * 0.39);
+    // Centred on a neutral spot, not on any one answer.
+    expect(view.x + view.w / 2).toBeCloseTo(520);
+  });
+
+  it('opens a desktop window on the whole world, edge to edge', () => {
+    const view = viewOf(initialCamera(map, desktop), map, desktop);
+    expect(view.w).toBeCloseTo(1000);
+    expect(view.x).toBeGreaterThanOrEqual(-1e-9);
+    expect(view.x + view.w).toBeLessThanOrEqual(1000 + 1e-9);
+  });
+
+  it("always draws in the frame's own proportions, so nothing is stretched", () => {
+    for (const box of [phone, desktop, landscapePhone]) {
+      for (const camera of [initialCamera(map, box), worldCamera(map)]) {
+        const view = viewOf(camera, map, box);
+        expect(view.w / view.h).toBeCloseTo(box.width / box.height);
+      }
+    }
+  });
+
+  it('shows the whole world at k = 1, with the spare height split evenly', () => {
+    const view = viewOf(worldCamera(map), map, phone);
+    expect(view.w).toBeCloseTo(1000);
+    expect(view.x).toBeCloseTo(0);
+    expect(view.y + view.h / 2).toBeCloseTo(260);
+    expect(viewBoxOf(view)).toContain('1000');
+  });
+});
+
+describe('re-fitting when the frame changes (#91)', () => {
+  it('keeps the place and the zoom when a phone is turned on its side', () => {
+    const camera = zoomAt(initialCamera(map, phone), 3, { x: 560, y: 300 }, map, phone);
+    const before = viewOf(camera, map, phone);
+    const after = viewOf(camera, map, landscapePhone);
+    expect(after.x + after.w / 2).toBeCloseTo(before.x + before.w / 2, 0);
+    expect(after.y + after.h / 2).toBeCloseTo(before.y + before.h / 2, 0);
+    expect(after.w / after.h).toBeCloseTo(landscapePhone.width / landscapePhone.height);
+  });
+
+  it('stays on the map whatever the frame', () => {
+    for (const box of [phone, desktop, landscapePhone]) {
+      const camera = panBy(initialCamera(map, box), 5000, -5000, map, box);
+      const view = viewOf(camera, map, box);
+      if (view.w < map.width) {
+        expect(view.x).toBeGreaterThanOrEqual(-1e-9);
+        expect(view.x + view.w).toBeLessThanOrEqual(map.width + 1e-9);
+      }
+      if (view.h < map.height) {
+        expect(view.y).toBeGreaterThanOrEqual(-1e-9);
+        expect(view.y + view.h).toBeLessThanOrEqual(map.height + 1e-9);
+      }
+    }
   });
 });
 
 describe('zoomAt', () => {
   it('keeps the point under the cursor where it was', () => {
-    const start = fullView(data);
+    const start = initialCamera(map, desktop);
     const point = { x: 600, y: 200 };
-    const zoomed = zoomAt(start, 2, point, data);
-    expect(zoomed.w).toBe(500);
-    // The point sits at the same fraction of the view before and after.
-    expect((point.x - zoomed.x) / zoomed.w).toBeCloseTo((point.x - start.x) / start.w);
-    expect((point.y - zoomed.y) / zoomed.h).toBeCloseTo((point.y - start.y) / start.h);
-  });
-
-  it('keeps the aspect ratio', () => {
-    const zoomed = zoomAt(fullView(data), 3, { x: 100, y: 100 }, data);
-    expect(zoomed.w / zoomed.h).toBeCloseTo(1000 / 520);
+    const before = viewOf(start, map, desktop);
+    const after = viewOf(zoomAt(start, 2, point, map, desktop), map, desktop);
+    expect((point.x - after.x) / after.w).toBeCloseTo((point.x - before.x) / before.w);
+    expect((point.y - after.y) / after.h).toBeCloseTo((point.y - before.y) / before.h);
+    expect(after.w).toBeCloseTo(before.w / 2);
   });
 
   it('cannot zoom out past the whole world', () => {
-    expect(zoomAt(fullView(data), 0.1, { x: 500, y: 260 }, data)).toEqual(fullView(data));
+    expect(zoomAt(worldCamera(map), 0.1, { x: 500, y: 260 }, map, phone).k).toBe(1);
   });
 
   it('cannot zoom in past the maximum', () => {
-    let view = fullView(data);
+    let camera = initialCamera(map, phone);
     for (let step = 0; step < 40; step += 1) {
-      view = zoomAt(view, 2, { x: 500, y: 260 }, data);
+      camera = zoomAt(camera, 2, { x: 520, y: 260 }, map, phone);
     }
-    expect(zoomLevel(view, data)).toBeCloseTo(MAX_ZOOM);
+    expect(camera.k).toBeCloseTo(MAX_ZOOM);
   });
 
   it('stays on the map when zooming at a corner', () => {
-    const view = zoomAt(fullView(data), 4, { x: 1000, y: 520 }, data);
+    const start = initialCamera(map, desktop);
+    const view = viewOf(zoomAt(start, 4, { x: 1000, y: 520 }, map, desktop), map, desktop);
     expect(view.x + view.w).toBeLessThanOrEqual(1000 + 1e-9);
     expect(view.y + view.h).toBeLessThanOrEqual(520 + 1e-9);
-    expect(view.x).toBeGreaterThanOrEqual(0);
   });
 });
 
 describe('panBy', () => {
-  const zoomed = { x: 400, y: 200, w: 250, h: 130 };
-
-  it('moves the view', () => {
-    expect(panBy(zoomed, 30, -20, data)).toEqual({ ...zoomed, x: 430, y: 180 });
+  it('moves the view by a distance in map units', () => {
+    const start = zoomAt(initialCamera(map, desktop), 4, { x: 500, y: 260 }, map, desktop);
+    const moved = panBy(start, 30, -20, map, desktop);
+    expect(moved.cx).toBeCloseTo(start.cx + 30);
+    expect(moved.cy).toBeCloseTo(start.cy - 20);
   });
 
-  it('stops at every edge', () => {
-    expect(panBy(zoomed, -5000, -5000, data)).toMatchObject({ x: 0, y: 0 });
-    const far = panBy(zoomed, 5000, 5000, data);
-    expect(far.x + far.w).toBe(1000);
-    expect(far.y + far.h).toBeCloseTo(520);
+  it('can reach both edges of the land when zoomed in on a phone', () => {
+    const start = zoomAt(initialCamera(map, phone), 3, { x: 500, y: 260 }, map, phone);
+    const left = viewOf(panBy(start, -5000, 0, map, phone), map, phone);
+    const right = viewOf(panBy(start, 5000, 0, map, phone), map, phone);
+    expect(left.x).toBeCloseTo(0);
+    expect(right.x + right.w).toBeCloseTo(1000);
   });
 
-  it('cannot pan the whole world', () => {
-    expect(panBy(fullView(data), 100, 100, data)).toEqual(fullView(data));
+  it('has nowhere to go when the whole world is in view', () => {
+    const world = worldCamera(map);
+    expect(panBy(world, 100, 100, map, desktop)).toEqual(clampCamera(world, map, desktop));
   });
 });
 
-describe('clampView', () => {
-  it('repairs a view that is too wide or off the map', () => {
-    expect(clampView({ x: -50, y: -50, w: 5000, h: 10 }, data)).toEqual(fullView(data));
+describe('clampCamera', () => {
+  it('repairs a camera that is too close, too far, or off the map', () => {
+    const fixed = clampCamera({ cx: -50, cy: 9999, k: 99 }, map, phone);
+    expect(fixed.k).toBe(MAX_ZOOM);
+    expect(clampCamera({ cx: 0, cy: 0, k: 0.01 }, map, phone).k).toBe(1);
+    const view = viewOf(fixed, map, phone);
+    expect(view.x).toBeGreaterThanOrEqual(-1e-9);
+    expect(view.y + view.h).toBeLessThanOrEqual(520 + 1e-9);
   });
 });

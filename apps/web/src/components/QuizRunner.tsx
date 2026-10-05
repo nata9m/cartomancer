@@ -381,7 +381,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   const progress = total === 0 ? 0 : Math.round((answeredCount / total) * 100);
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${format === 'map_tap' ? ' app-shell--map' : ''}`}>
       <div className="quiz-header">
         <Link className="icon-button" href="/" aria-label="Leave quiz">
           <IconX size={19} stroke={1.9} />
