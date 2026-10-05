@@ -239,7 +239,7 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
  *    country → capital and fixes capital → country ("Paris — France")
  */
 function MissedRow({ missed, category }: { missed: MissedQuestion; category: QuizCategory }) {
-  if (category === 'flags') {
+  if (category === 'flags' || category === 'map') {
     return (
       <div className="missed-row">
         <span className="missed-flag">

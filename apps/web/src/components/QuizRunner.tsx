@@ -7,6 +7,7 @@ import { matchesAcceptedAnswer } from '@cartomancer/shared';
 import type { AnswerResult, QuizQuestion, QuizSession } from '@cartomancer/shared';
 import { Flag } from './Flag';
 import { IconArrowRight, IconBulb, IconCheck, IconSparkles, IconX } from './icons';
+import { WorldMap } from './WorldMap';
 import {
   checkAnswerAsGuest,
   finishQuizSession,
@@ -21,8 +22,8 @@ import {
   type GuestAnswer,
 } from '@/lib/guest-store';
 import { haptic, hapticFor } from '@/lib/haptics';
-import { revealAnnouncement } from '@/lib/reveal';
-import { feedbackText, typeInFeedback } from '@/lib/type-in-feedback';
+import { nextReviewText, revealAnnouncement } from '@/lib/reveal';
+import { feedbackText, mapTapFeedback, typeInFeedback } from '@/lib/type-in-feedback';
 import { getRoundNote } from '@/lib/round-note';
 import { markFactSeen } from '@/lib/seen-facts';
 
@@ -67,6 +68,8 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   const [phase, setPhase] = useState<Phase>('answering');
   const [typed, setTyped] = useState('');
   const [chosenLabel, setChosenLabel] = useState<string | null>(null);
+  // Map mode (#52): the country tapped, as its ISO code, until it is confirmed.
+  const [mapChoice, setMapChoice] = useState<string | null>(null);
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [answeredCount, setAnsweredCount] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -198,12 +201,14 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
           [
             revealAnnouncement(outcome),
             feedbackText(
-              typeInFeedback({
-                result: outcome,
-                typed: value,
-                capitalAnswer: isCapitalAnswer,
-                hintUsed,
-              }),
+              session.quizType.format === 'map_tap'
+                ? mapTapFeedback(outcome)
+                : typeInFeedback({
+                    result: outcome,
+                    typed: value,
+                    capitalAnswer: isCapitalAnswer,
+                    hintUsed,
+                  }),
             ),
           ]
             .filter(Boolean)
@@ -317,6 +322,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
       setIndex((value) => value + 1);
       setPhase('answering');
       setTyped('');
+      setMapChoice(null);
       setChosenLabel(null);
       setResult(null);
       setHintUsed(false);
@@ -361,9 +367,13 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
 
   const { category, format } = session.quizType;
   const feedback =
-    phase === 'revealed' && result && format === 'type_in'
-      ? typeInFeedback({ result, typed, capitalAnswer: isCapitalAnswer, hintUsed })
-      : null;
+    phase !== 'revealed' || !result
+      ? null
+      : format === 'type_in'
+        ? typeInFeedback({ result, typed, capitalAnswer: isCapitalAnswer, hintUsed })
+        : format === 'map_tap'
+          ? mapTapFeedback(result)
+          : null;
   const progress = total === 0 ? 0 : Math.round((answeredCount / total) * 100);
 
   return (
@@ -489,6 +499,40 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
             );
           })}
         </div>
+      ) : format === 'map_tap' ? (
+        <>
+          <WorldMap
+            selectedIso={mapChoice}
+            onSelect={setMapChoice}
+            disabled={phase === 'revealed' || busy}
+            resetKey={index}
+            reveal={
+              phase === 'revealed' && result
+                ? { correctIso: result.correctIsoCode.toLowerCase(), chosenIso: mapChoice }
+                : null
+            }
+          />
+          {phase === 'answering' ? (
+            <div className="answer-form">
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={busy || mapChoice === null}
+                onClick={() => mapChoice && void answer(mapChoice)}
+              >
+                {mapChoice ? 'Confirm' : 'Tap a country'}
+              </button>
+              <button
+                type="button"
+                className="link-underline give-up"
+                disabled={busy}
+                onClick={() => void answer('', true)}
+              >
+                I don&rsquo;t know
+              </button>
+            </div>
+          ) : null}
+        </>
       ) : (
         <form
           className="answer-form"
@@ -563,7 +607,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
 
       {phase === 'revealed' && result ? (
         <>
-          {format === 'type_in' ? (
+          {format === 'type_in' || format === 'map_tap' ? (
             <div className={`result-row result-row--${result.wasCorrect ? 'correct' : 'wrong'}`}>
               {result.wasCorrect ? (
                 <>
@@ -592,6 +636,10 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
               <IconSparkles size={16} stroke={1.9} aria-hidden="true" />
               {result.correctCountryName} is now learned — {result.currentStreak} in a row
             </p>
+          ) : null}
+
+          {result.nextReviewInDays !== undefined && result.wasCorrect ? (
+            <p className="review-note">{nextReviewText(result.nextReviewInDays)}</p>
           ) : null}
 
           <button

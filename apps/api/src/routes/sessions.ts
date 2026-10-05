@@ -8,6 +8,7 @@ import {
   type QuizTypeDefinition,
   type SessionResults,
   createAnswerSalt,
+  qualityFromTime,
   quizTypeByKey,
 } from '@cartomancer/shared';
 import type { Country, PrismaClient } from '@cartomancer/db';
@@ -16,14 +17,13 @@ import { z } from 'zod';
 import { badRequest, forbidden, notFound } from '../errors.js';
 import { type Db, isUniqueViolation, lockParticipant } from '../lib/db.js';
 import { loadAllCountries } from '../lib/countries.js';
-import { checkAnswer } from '../lib/matching.js';
 import { requestTimeZone } from '../timezone.js';
 import { loadSummary, newlyLearnedInSession, recordProgress } from '../lib/progress.js';
 import {
-  answerDomainFor,
   buildQuestions,
   clampQuestionCount,
   expectedAnswerFor,
+  judgeAnswer,
   loadFacts,
   loadFactsByIds,
   shuffle,
@@ -383,11 +383,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       return replay(already);
     }
 
-    const outcome = await checkAnswer(app.prisma, {
-      answer: body.answer,
-      domain: answerDomainFor(definition),
-      expectedCountryId: country.id,
-    });
+    const outcome = await judgeAnswer(app.prisma, definition, country, body.answer);
     const answeredAt = new Date();
 
     // The four writes are one unit (#54). They used to be four statements, so a
@@ -421,6 +417,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
           countryId: country.id,
           wasCorrect: outcome.isMatch,
           hintUsed: body.hintUsed,
+          quality: qualityFromTime(definition.format, body.timeTakenMs),
           answeredAt,
         });
         if (definition.category === 'trivia' && question.factId) {
@@ -456,6 +453,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       currentStreak: progress.currentStreak,
       isLearned: progress.isLearned,
       newlyLearned: progress.newlyLearned,
+      nextReviewInDays: progress.dueInDays,
     };
     return result;
   });
@@ -470,11 +468,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     if (!country) {
       throw notFound(`Unknown country ${body.countryId}`);
     }
-    const outcome = await checkAnswer(app.prisma, {
-      answer: body.answer,
-      domain: answerDomainFor(definition),
-      expectedCountryId: country.id,
-    });
+    const outcome = await judgeAnswer(app.prisma, definition, country, body.answer);
     const result: AnswerResult = {
       wasCorrect: outcome.isMatch,
       correctAnswer: expectedAnswerFor(definition, country),
@@ -688,7 +682,6 @@ async function buildResults(
   const newlyLearned = await newlyLearnedInSession(prisma, {
     userId,
     quizTypeId: session.quizTypeId,
-    quizTypeKey: session.quizType.key,
     countryIds: session.questions.map((question) => question.countryId),
     since: session.createdAt,
   });

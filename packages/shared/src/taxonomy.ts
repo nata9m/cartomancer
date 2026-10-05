@@ -13,10 +13,14 @@ export type Region = (typeof REGIONS)[number];
 export const DIFFICULTIES = ['Easy', 'Medium', 'Hard'] as const;
 export type Difficulty = (typeof DIFFICULTIES)[number];
 
-export const QUIZ_CATEGORIES = ['capitals', 'flags', 'countries', 'trivia'] as const;
+export const QUIZ_CATEGORIES = ['capitals', 'flags', 'countries', 'trivia', 'map'] as const;
 export type QuizCategory = (typeof QUIZ_CATEGORIES)[number];
 
-export const QUIZ_FORMATS = ['multiple_choice', 'type_in', 'recall'] as const;
+/**
+ * `map_tap`: the answer is a tap on a world map (#52). It is sent as the ISO
+ * 3166-1 alpha-2 code of the country tapped, and judged by exact comparison.
+ */
+export const QUIZ_FORMATS = ['multiple_choice', 'type_in', 'recall', 'map_tap'] as const;
 export type QuizFormat = (typeof QUIZ_FORMATS)[number];
 
 /**
@@ -141,6 +145,26 @@ export const QUIZ_TYPES: readonly QuizTypeDefinition[] = [
     description: 'Guess the country from a clue',
     isActive: true,
   },
+  {
+    key: 'map-c2loc',
+    category: 'map',
+    format: 'map_tap',
+    displayName: 'Map',
+    directionLabel: 'Country → location',
+    direction: 'country_to_attribute',
+    description: 'Find the country on a world map',
+    isActive: true,
+  },
+  {
+    key: 'map-cap2loc',
+    category: 'map',
+    format: 'map_tap',
+    displayName: 'Map',
+    directionLabel: 'Capital → location',
+    direction: 'attribute_to_country',
+    description: 'Find the country that has the capital shown',
+    isActive: true,
+  },
 ] as const;
 
 export const QUIZ_TYPES_BY_KEY: Readonly<Record<string, QuizTypeDefinition>> = Object.fromEntries(
@@ -195,34 +219,7 @@ export const CATEGORY_CARDS: readonly {
 export const QUESTION_COUNT_OPTIONS = [10, 20, 30] as const;
 export const DEFAULT_QUESTION_COUNT = 20;
 
-/** 3 correct answers in a row marks a country learned… */
-export const LEARNED_STREAK_THRESHOLD = 3;
-/** …except active recall, where one successful recall is enough. */
-export const RECALL_LEARNED_STREAK_THRESHOLD = 1;
-
-export function learnedThresholdFor(quizTypeKey: string): number {
-  return quizTypeByKey(quizTypeKey)?.format === 'recall'
-    ? RECALL_LEARNED_STREAK_THRESHOLD
-    : LEARNED_STREAK_THRESHOLD;
-}
-
-/**
- * The bar a country has to clear to count as learned in a whole category, for
- * screens that explain the rule rather than apply it (the api stores
- * `is_learned` per quiz type and a category is `bool_or` over those).
- *
- * Derived from the category's quiz types rather than hard-coded, so adding one
- * keeps the copy honest: `countries` is 1 because active recall is its only
- * format, everything else is 3. If a category ever mixed thresholds this
- * returns the strictest, which is the number the explanation should quote —
- * none does today, and a category that did would need two sentences anyway.
- */
-export function learnedThresholdForCategory(category: QuizCategory): number {
-  const thresholds = QUIZ_TYPES.filter((type) => type.category === category).map((type) =>
-    learnedThresholdFor(type.key),
-  );
-  return thresholds.length === 0 ? LEARNED_STREAK_THRESHOLD : Math.max(...thresholds);
-}
+/* What counts as learned is a review interval, not a streak: see scheduling.ts (#50). */
 
 /**
  * pg_trgm similarity floor for fuzzy answer matching, in the middle of the

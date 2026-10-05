@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { ProgressSummary } from '@cartomancer/shared';
 import { CardShell } from './Cards';
-import { IconBuildingBank, IconBulb, IconFlag, IconMap, IconSparkles } from './icons';
+import { IconBuildingBank, IconBulb, IconFlag, IconMap, IconSparkles, IconWorld } from './icons';
 
 /**
  * The four home-screen category cards.
@@ -59,6 +59,14 @@ export function HomeQuizCards({ summary }: { summary?: ProgressSummary | null })
           title="Flags"
           description="Learn the flag of every country"
           trailing={number(summary?.learned.flags)}
+        />
+      </Link>
+
+      <Link className="card card--tarot" href="/map">
+        <CardShell
+          icon={<IconWorld size={19} stroke={1.75} />}
+          title="Map"
+          description="Find countries on a world map"
         />
       </Link>
 

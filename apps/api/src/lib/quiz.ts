@@ -16,7 +16,8 @@ import {
 import type { Country, PrismaClient, QuizType } from '@cartomancer/db';
 import type { Db } from './db.js';
 import { badRequest, notFound } from '../errors.js';
-import type { AnswerDomain } from './matching.js';
+import { checkAnswer, type AnswerDomain, type MatchOutcome } from './matching.js';
+import { loadAllCountries } from './countries.js';
 
 export const OPTIONS_PER_QUESTION = 4;
 
@@ -63,6 +64,37 @@ export function answerDomainFor(definition: QuizTypeDefinition): AnswerDomain {
   return definition.category === 'capitals' && definition.direction === 'country_to_attribute'
     ? 'capital'
     : 'country';
+}
+
+/**
+ * Judges an answer, whatever the format. A map tap arrives as the ISO code of
+ * the country tapped (#52) and is right or wrong by comparison — no matching —
+ * but a wrong one still reports *which* country was tapped, so the reveal can
+ * say "that was Austria" the way a type-in does (#53). Everything else is text,
+ * and goes to the matcher.
+ */
+export async function judgeAnswer(
+  prisma: PrismaClient,
+  definition: QuizTypeDefinition,
+  country: Country,
+  answer: string,
+): Promise<MatchOutcome> {
+  if (definition.format !== 'map_tap') {
+    return checkAnswer(prisma, {
+      answer,
+      domain: answerDomainFor(definition),
+      expectedCountryId: country.id,
+    });
+  }
+  const tapped = answer.trim().toLowerCase();
+  if (tapped === country.isoCode.toLowerCase()) {
+    return { isMatch: true, matchedBy: 'exact', matchedCountryId: country.id };
+  }
+  const named =
+    tapped === ''
+      ? undefined
+      : (await loadAllCountries(prisma)).find((other) => other.isoCode.toLowerCase() === tapped);
+  return { isMatch: false, matchedBy: 'none', matchedCountryId: named?.id ?? null };
 }
 
 /** The canonical expected answer, used for the reveal row and the missed list. */
@@ -135,9 +167,11 @@ export function parseDifficulty(value: unknown): DifficultyFilter {
 /**
  * Builds a session's question set for non-trivia categories.
  *
- * Signed in: one shared "last seen" pool per (user, quiz type), ordered by
- * `progress.last_answered_at ASC NULLS FIRST` so never-seen countries come
- * first and the oldest-seen cycle back round after that.
+ * Signed in (#50): one pool per (user, quiz type), ordered by what is due.
+ * Countries whose review has come round come first, most overdue first (a miss
+ * is due at once, so it leads the next round); then countries never asked; then
+ * the rest, soonest-due first, which is also how a pool smaller than the round
+ * cycles back through itself. Ties are shuffled.
  *
  * Guest: no rotation memory exists, so the pick is simply random.
  */
@@ -184,7 +218,14 @@ export async function selectCountryIds(
       WHERE ($1::text IS NULL OR c.region = $1)
         AND ($2::text IS NULL OR c.difficulty = $2)
         ${factClause}
-      ORDER BY p.last_answered_at ASC NULLS FIRST, random()
+      ORDER BY
+        CASE
+          WHEN p.due_at IS NULL THEN 1
+          WHEN p.due_at <= now() THEN 0
+          ELSE 2
+        END,
+        p.due_at ASC NULLS LAST,
+        random()
       LIMIT $3`,
     region,
     difficulty,
@@ -434,6 +475,10 @@ export function promptFor(
         promptLabel: 'Fun fact',
         promptText: factsByCountryId.get(country.id) ?? '',
       };
+    case 'map':
+      return definition.direction === 'country_to_attribute'
+        ? { promptLabel: 'Find on the map', promptText: country.name }
+        : { promptLabel: 'Find the country with the capital', promptText: country.capital };
     case 'countries':
     default:
       return { promptLabel: 'Name a country', promptText: '' };

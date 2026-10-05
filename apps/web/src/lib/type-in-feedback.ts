@@ -83,3 +83,19 @@ export function typeInFeedback(options: {
 export function feedbackText(feedback: TypeInFeedback | null): string {
   return feedback ? `${feedback.parts.map((part) => part.text).join('')}.` : '';
 }
+
+/**
+ * The note under a map reveal (#52): a wrong tap says which country it was. A
+ * tap that missed everything, or landed on something that is not one of the 195
+ * (open sea, Greenland), has nothing to name.
+ */
+export function mapTapFeedback(result: Pick<AnswerResult, 'wasCorrect' | 'matchedCountryName'>) {
+  if (result.wasCorrect || !result.matchedCountryName) {
+    return null;
+  }
+  const feedback: TypeInFeedback = {
+    kind: 'other',
+    parts: [{ text: 'That was ' }, { text: result.matchedCountryName, emphasis: true }],
+  };
+  return feedback;
+}
