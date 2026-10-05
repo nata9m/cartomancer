@@ -36,18 +36,17 @@ describe('typeInFeedback', () => {
     ]);
   });
 
-  it('notes a wrong answer that is another country', () => {
-    const note = feedback(
-      {
-        wasCorrect: false,
-        matchedBy: 'none',
-        correctAnswer: 'Australia',
-        matchedCountryName: 'Austria',
-      },
-      { typed: 'austria' },
-    );
-    expect(note?.kind).toBe('other');
-    expect(feedbackText(note)).toBe('Austria is a different country — the answer was Australia.');
+  it('says nothing when a wrong answer is another country (#93)', () => {
+    const wrong = {
+      wasCorrect: false,
+      matchedBy: 'none' as const,
+      correctAnswer: 'Australia',
+      matchedCountryName: 'Austria',
+    };
+    const note = feedback(wrong, { typed: 'austria' });
+    expect(note).toBeNull();
+    // Nothing for the live region to read either.
+    expect(feedbackText(note)).toBe('');
   });
 
   it('says whose capital it was for a capital question', () => {

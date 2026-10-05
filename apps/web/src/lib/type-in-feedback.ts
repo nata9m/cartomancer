@@ -22,9 +22,10 @@ type FeedbackResult = Pick<
  *
  * - Accepted by fuzzy match: "Close — you typed *Kyrgistan*, it's spelled
  *   *Kyrgyzstan*". Aliases are not noted: "USA" is simply right.
- * - Wrong, but it exactly names another country: "*Austria* is a different
- *   country — the answer was *Australia*". For a capital question, "*Vienna*
- *   is the capital of *Austria*" is the sentence that fits instead.
+ * - Wrong, and the typed capital belongs to another country: "*Vienna* is the
+ *   capital of *Austria* — the answer was *Canberra*", because that teaches a
+ *   fact. There is no equivalent for a typed *country*: "Austria is a different
+ *   country" is obvious, and the answer is already on the result card (#93).
  * - Right, with the hint taken: a reminder that it did not count towards
  *   learning, because otherwise it just looks like the streak is broken.
  *
@@ -58,22 +59,16 @@ export function typeInFeedback(options: {
       ],
     };
   }
-  if (!result.wasCorrect && result.matchedCountryName && typed !== '') {
+  if (!result.wasCorrect && capitalAnswer && result.matchedCountryName && typed !== '') {
     return {
       kind: 'other',
-      parts: capitalAnswer
-        ? [
-            { text: typed, emphasis: true },
-            { text: ' is the capital of ' },
-            { text: result.matchedCountryName, emphasis: true },
-            { text: ' — the answer was ' },
-            { text: result.correctAnswer, emphasis: true },
-          ]
-        : [
-            { text: result.matchedCountryName, emphasis: true },
-            { text: ' is a different country — the answer was ' },
-            { text: result.correctAnswer, emphasis: true },
-          ],
+      parts: [
+        { text: typed, emphasis: true },
+        { text: ' is the capital of ' },
+        { text: result.matchedCountryName, emphasis: true },
+        { text: ' — the answer was ' },
+        { text: result.correctAnswer, emphasis: true },
+      ],
     };
   }
   return null;
