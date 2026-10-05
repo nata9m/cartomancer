@@ -9,6 +9,7 @@ import { IconArrowRight, IconCircleCheck, IconFlame } from './icons';
 import { loadQuizResults, startQuizSession } from '@/lib/client-api';
 import { preloadQuestionFlags } from '@/lib/flag-art';
 import { isGuestSessionId, loadGuestQuiz, saveGuestQuiz } from '@/lib/guest-store';
+import { countryRotation } from '@/lib/use-start';
 
 /**
  * Quiz results.
@@ -112,6 +113,7 @@ export function QuizResults({ sessionId }: { sessionId: string }) {
               region: results.regionFilter,
               difficulty: results.difficultyFilter,
               questionCount: results.total,
+              ...countryRotation(results.quizType.key),
             },
       );
       if (session.isGuest) {

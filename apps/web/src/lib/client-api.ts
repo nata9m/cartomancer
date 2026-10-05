@@ -98,6 +98,8 @@ export interface StartQuizInput {
   countryIds?: number[];
   /** Guest trivia rotation: clue id → epoch ms last answered (#70). */
   seenFacts?: Record<string, number>;
+  /** Guest country rotation: country id → epoch ms last asked (#96). */
+  seenCountries?: Record<string, number>;
 }
 
 export const startQuizSession = (input: StartQuizInput): Promise<QuizSession> =>

@@ -165,15 +165,39 @@ export function parseDifficulty(value: unknown): DifficultyFilter {
 }
 
 /**
- * Builds a session's question set for non-trivia categories.
+ * The strict rotation (#96): countries never asked first, in random order, then
+ * the rest least recently asked first. Nothing comes back before every country in
+ * the pool has been seen, and once it has, the oldest leads the next cycle. Ties
+ * (equal times) are shuffled so a new cycle feels like a reshuffle.
  *
- * Signed in (#50): one pool per (user, quiz type), ordered by what is due.
- * Countries whose review has come round come first, most overdue first (a miss
- * is due at once, so it leads the next round); then countries never asked; then
- * the rest, soonest-due first, which is also how a pool smaller than the round
- * cycles back through itself. Ties are shuffled.
+ * Pure, so the rule is one function with one test. `seen` is country id → epoch
+ * ms it was last asked; absent means never.
+ */
+export function orderByRotation(
+  ids: readonly number[],
+  seen: ReadonlyMap<number, number>,
+  limit: number,
+): number[] {
+  const unseen = shuffle(ids.filter((id) => !seen.has(id)));
+  const met = shuffle(ids.filter((id) => seen.has(id))).sort(
+    (a, b) => (seen.get(a) as number) - (seen.get(b) as number),
+  );
+  return [...unseen, ...met].slice(0, limit);
+}
+
+/**
+ * Builds a session's question set for non-trivia categories (#96).
  *
- * Guest: no rotation memory exists, so the pick is simply random.
+ * Signed in: one "last seen" pool per (user, quiz type), shared across filters,
+ * ordered by `progress.last_answered_at ASC NULLS FIRST`: never-seen first, then
+ * the oldest. The spaced-repetition schedule (#50) does NOT drive selection, so a
+ * country answered yesterday never comes back ahead of one that has not been
+ * seen, right or wrong; a missed country returns in the next cycle, and the
+ * explicit way to drill misses is "Practise these again" (#51).
+ *
+ * Guest: no server memory, so the browser sends its own list (`seenCountries`,
+ * country id → epoch ms, kept per quiz type) and the same rule runs over it. With
+ * none, the pick is random, as before.
  */
 export async function selectCountryIds(
   prisma: PrismaClient,
@@ -184,9 +208,11 @@ export async function selectCountryIds(
     limit: number;
     /** Trivia can only ask about countries that have at least one clue. */
     requireFacts: boolean;
+    /** Guest only: country id → epoch ms it was last asked. */
+    seenCountries?: Record<string, number>;
   },
 ): Promise<number[]> {
-  const { userId, quizTypeId, filters, limit, requireFacts } = options;
+  const { userId, quizTypeId, filters, limit, requireFacts, seenCountries } = options;
   const region = filters.region === ALL_FILTER ? null : filters.region;
   const difficulty = filters.difficulty === ALL_FILTER ? null : filters.difficulty;
 
@@ -200,14 +226,19 @@ export async function selectCountryIds(
          FROM countries c
         WHERE ($1::text IS NULL OR c.region = $1)
           AND ($2::text IS NULL OR c.difficulty = $2)
-          ${factClause}
-        ORDER BY random()
-        LIMIT $3`,
+          ${factClause}`,
       region,
       difficulty,
+    );
+    const seen = new Map<number, number>();
+    for (const [id, at] of Object.entries(seenCountries ?? {})) {
+      seen.set(Number(id), at);
+    }
+    return orderByRotation(
+      rows.map((r) => r.id),
+      seen,
       limit,
     );
-    return rows.map((r) => r.id);
   }
 
   const rows = await prisma.$queryRawUnsafe<{ id: number }[]>(
@@ -218,14 +249,7 @@ export async function selectCountryIds(
       WHERE ($1::text IS NULL OR c.region = $1)
         AND ($2::text IS NULL OR c.difficulty = $2)
         ${factClause}
-      ORDER BY
-        CASE
-          WHEN p.due_at IS NULL THEN 1
-          WHEN p.due_at <= now() THEN 0
-          ELSE 2
-        END,
-        p.due_at ASC NULLS LAST,
-        random()
+      ORDER BY p.last_answered_at ASC NULLS FIRST, random()
       LIMIT $3`,
     region,
     difficulty,

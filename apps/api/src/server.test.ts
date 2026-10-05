@@ -17,7 +17,7 @@ import {
   matchesAcceptedAnswer,
   normalizeAnswer,
 } from '@cartomancer/shared';
-import { type ClueCandidate, pickClues } from './lib/quiz.js';
+import { type ClueCandidate, orderByRotation, pickClues } from './lib/quiz.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { clearCountryCache, loadAllCountries } from './lib/countries.js';
 import { loadSummary } from './lib/progress.js';
@@ -1100,6 +1100,34 @@ describe('map mode (#52)', () => {
   });
 });
 
+describe('orderByRotation (#96)', () => {
+  it('puts never-seen first, then the least recently seen, and honours the limit', () => {
+    const seen = new Map([
+      [1, 500],
+      [2, 100],
+      [3, 300],
+    ]);
+    assert.deepEqual(orderByRotation([1, 2, 3, 4, 5], seen, 5).slice(2), [2, 3, 1]);
+    assert.deepEqual(
+      new Set(orderByRotation([1, 2, 3, 4, 5], seen, 5).slice(0, 2)),
+      new Set([4, 5]),
+    );
+    assert.deepEqual(orderByRotation([1, 2, 3], seen, 2), [2, 3]);
+    assert.deepEqual(orderByRotation([], seen, 5), []);
+  });
+
+  it('is a plain shuffle when nothing has been seen', () => {
+    const ids = Array.from({ length: 30 }, (_, index) => index + 1);
+    const picked = orderByRotation(ids, new Map(), 30);
+    assert.equal(new Set(picked).size, 30);
+    assert.notDeepEqual(picked, ids, 'shuffled');
+  });
+
+  it('ignores seen ids that are not in the pool', () => {
+    assert.deepEqual(orderByRotation([1, 2], new Map([[99, 1]]), 5).sort(), [1, 2]);
+  });
+});
+
 describe('spaced repetition (#50)', () => {
   let srsUserId: string;
   const SRS_EMAIL = 'api-srs@cartomancer.invalid';
@@ -1164,7 +1192,6 @@ describe('spaced repetition (#50)', () => {
     const norway = await country('Norway');
 
     const first = await play(norway.id, 'Norway');
-    assert.equal(first.result.nextReviewInDays, 1);
     assert.equal(first.result.isLearned, false);
     let row = await rowFor(norway.id);
     assert.equal(row.intervalDays, 1);
@@ -1172,13 +1199,13 @@ describe('spaced repetition (#50)', () => {
     assert.ok(Math.abs(row.dueAt.getTime() - (row.lastAnsweredAt?.getTime() ?? 0) - DAY) < 1000);
 
     const second = await play(norway.id, 'Norway');
-    assert.equal(second.result.nextReviewInDays, 6);
+    assert.equal((await rowFor(norway.id)).intervalDays, 6);
     assert.equal(second.result.isLearned, false);
 
     const third = await play(norway.id, 'Norway');
     assert.equal(third.result.currentStreak, 3);
     // 6 days x an ease that three quick answers have raised from 2.5.
-    assert.ok(third.result.nextReviewInDays >= 15, String(third.result.nextReviewInDays));
+    assert.ok((await rowFor(norway.id)).intervalDays >= 15);
     assert.equal(third.result.isLearned, true);
     assert.equal(third.result.newlyLearned, true);
     row = await rowFor(norway.id);
@@ -1202,7 +1229,6 @@ describe('spaced repetition (#50)', () => {
     assert.equal(result.wasCorrect, false);
     assert.equal(result.currentStreak, 0);
     assert.equal(result.isLearned, false);
-    assert.equal(result.nextReviewInDays, 0);
     const row = await rowFor(sweden.id);
     assert.equal(row.intervalDays, 0);
     assert.equal(row.learnedAt, null, 'a lapse clears learned_at');
@@ -1226,12 +1252,15 @@ describe('spaced repetition (#50)', () => {
     assert.equal((await rowFor(chad.id)).ease, 2.5);
   });
 
-  it('asks for what is due first, then what is new, then what is not yet due', async () => {
-    const [due, fresh, later, overdue] = await Promise.all(
+  it('does not let the schedule drive selection: never-seen first, then least recently asked (#96)', async () => {
+    const [recent, fresh, oldest, overdue] = await Promise.all(
       ['Peru', 'Chile', 'Bolivia', 'Ecuador'].map(country),
     );
     const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: quizTypeKey } });
-    const seed = (countryId: number, dueAt: Date) =>
+    // `dueAt` is set the way spaced repetition would, to prove it is ignored:
+    // "overdue" was answered a day ago and is long overdue, "oldest" was answered
+    // longest ago but is not due for weeks.
+    const seed = (countryId: number, answeredDaysAgo: number, dueInDays: number) =>
       prisma.progress.create({
         data: {
           userId: srsUserId,
@@ -1239,16 +1268,14 @@ describe('spaced repetition (#50)', () => {
           quizTypeId: quizType.id,
           currentStreak: 1,
           intervalDays: 1,
-          dueAt,
-          lastAnsweredAt: new Date(Date.now() - 2 * DAY),
+          dueAt: new Date(Date.now() + dueInDays * DAY),
+          lastAnsweredAt: new Date(Date.now() - answeredDaysAgo * DAY),
         },
       });
-    await seed((later as { id: number }).id, new Date(Date.now() + 10 * DAY));
-    await seed((due as { id: number }).id, new Date(Date.now() - 1 * DAY));
-    await seed((overdue as { id: number }).id, new Date(Date.now() - 20 * DAY));
+    await seed((recent as { id: number }).id, 1, 6);
+    await seed((oldest as { id: number }).id, 30, 40);
+    await seed((overdue as { id: number }).id, 2, -20);
 
-    // Every other South American country is "new", so the round is exactly the
-    // ones with a schedule plus new ones, in that order.
     const response = await app.inject({
       method: 'POST',
       url: '/api/sessions',
@@ -1258,14 +1285,115 @@ describe('spaced repetition (#50)', () => {
     assert.equal(response.statusCode, 201, response.body);
     const ids: number[] = response.json().questions.map((q: { countryId: number }) => q.countryId);
     const at = (id: number) => ids.indexOf(id);
-    assert.ok(at((overdue as { id: number }).id) === 0, 'the most overdue is first');
-    assert.ok(at((due as { id: number }).id) === 1, 'then the next due');
-    assert.ok(at((fresh as { id: number }).id) > 1, 'new countries follow what is due');
-    assert.ok(
-      at((later as { id: number }).id) > at((fresh as { id: number }).id),
-      'what is not yet due comes last',
+    const asked = ['Peru', 'Bolivia', 'Ecuador'].length;
+    // Everything unseen comes before everything seen, however overdue.
+    assert.ok(at((fresh as { id: number }).id) < ids.length - asked, 'new before seen');
+    assert.deepEqual(
+      ids.slice(-asked),
+      [
+        (oldest as { id: number }).id,
+        (overdue as { id: number }).id,
+        (recent as { id: number }).id,
+      ],
+      'the seen ones end the round, oldest first',
     );
-    assert.equal(ids[ids.length - 1], (later as { id: number }).id);
+  });
+
+  it('plays whole rounds without repeating a country until the pool is exhausted, right or wrong (#96)', async () => {
+    const quizTypeKey2 = 'capitals-c2cap-mc';
+    const quizType = await prisma.quizType.findUniqueOrThrow({ where: { key: quizTypeKey2 } });
+    const pool = await prisma.country.count({ where: { region: 'Oceania' } });
+    const perRound = 4;
+    const seen = new Set<number>();
+    for (let round = 0; round < Math.floor(pool / perRound); round += 1) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/sessions',
+        headers: headers(),
+        payload: { quizTypeKey: quizTypeKey2, region: 'Oceania', questionCount: perRound },
+      });
+      assert.equal(response.statusCode, 201, response.body);
+      const session = response.json();
+      for (const [position, question] of session.questions.entries()) {
+        assert.equal(seen.has(question.countryId), false, `round ${round}: repeated early`);
+        seen.add(question.countryId);
+        const right = await prisma.country.findUniqueOrThrow({ where: { id: question.countryId } });
+        // Alternate right and wrong: neither may bring a country back sooner.
+        const value = position % 2 === 0 ? right.capital : 'definitely wrong';
+        const answered = await app.inject({
+          method: 'POST',
+          url: `/api/sessions/${session.id}/answers`,
+          headers: headers(),
+          payload: { sequence: question.sequence, answer: value, timeTakenMs: 1500 },
+        });
+        assert.equal(answered.statusCode, 200, answered.body);
+      }
+    }
+    assert.equal(seen.size, Math.floor(pool / perRound) * perRound);
+    assert.ok(quizType.id > 0);
+
+    // Once the pool is spent, the least recently answered leads the next cycle.
+    const oldestRow = await prisma.progress.findFirstOrThrow({
+      where: { userId: srsUserId, quizTypeId: quizType.id, country: { region: 'Oceania' } },
+      orderBy: { lastAnsweredAt: 'asc' },
+    });
+    const rest = await prisma.country.count({
+      where: { region: 'Oceania', id: { notIn: [...seen] } },
+    });
+    const next = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      headers: headers(),
+      payload: { quizTypeKey: quizTypeKey2, region: 'Oceania', questionCount: perRound + rest },
+    });
+    const ids: number[] = next.json().questions.map((q: { countryId: number }) => q.countryId);
+    // The few never asked (pool is not a multiple of the round size) come first…
+    assert.equal(ids.slice(rest).length, perRound);
+    // …then the oldest of those answered leads the new cycle.
+    assert.equal(ids[rest], oldestRow.countryId);
+  });
+
+  it('a guest gets new countries until their own list is exhausted, then the oldest (#96)', async () => {
+    const all = await prisma.country.findMany({
+      where: { region: 'Oceania' },
+      orderBy: { id: 'asc' },
+    });
+    const [first, second, ...others] = all;
+    const seenCountries: Record<string, number> = {};
+    for (const [index, c] of all.entries()) {
+      // The first two were asked longest ago; the last is the most recent.
+      seenCountries[String(c.id)] = 1000 + index;
+    }
+    const start = async (seen: Record<string, number>, count: number) => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/sessions',
+        payload: {
+          quizTypeKey: 'capitals-c2cap-mc',
+          region: 'Oceania',
+          questionCount: count,
+          seenCountries: seen,
+        },
+      });
+      assert.equal(response.statusCode, 201, response.body);
+      return response.json().questions.map((q: { countryId: number }) => q.countryId) as number[];
+    };
+
+    // Exhausted: everything is "seen", so the two oldest lead.
+    const spent = await start(seenCountries, 2);
+    assert.deepEqual(spent, [(first as { id: number }).id, (second as { id: number }).id]);
+
+    // One never seen: it comes first, then the oldest.
+    const partial = { ...seenCountries };
+    const unseen = others[others.length - 1] as { id: number };
+    delete partial[String(unseen.id)];
+    const mixed = await start(partial, 3);
+    assert.equal(mixed[0], unseen.id);
+    assert.deepEqual(mixed.slice(1), [(first as { id: number }).id, (second as { id: number }).id]);
+
+    // No list: any pool country, with no repeats within the round.
+    const bare = await start({}, 5);
+    assert.equal(new Set(bare).size, 5);
   });
 
   it('reports a newly learned country on the results, once', async () => {

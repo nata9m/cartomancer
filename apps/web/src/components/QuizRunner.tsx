@@ -22,9 +22,10 @@ import {
   type GuestAnswer,
 } from '@/lib/guest-store';
 import { haptic, hapticFor } from '@/lib/haptics';
-import { nextReviewText, revealAnnouncement } from '@/lib/reveal';
+import { revealAnnouncement } from '@/lib/reveal';
 import { feedbackText, mapTapFeedback, typeInFeedback } from '@/lib/type-in-feedback';
 import { getRoundNote } from '@/lib/round-note';
+import { markCountrySeen } from '@/lib/seen-countries';
 import { markFactSeen } from '@/lib/seen-facts';
 
 type Phase = 'answering' | 'revealed';
@@ -223,6 +224,9 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
           // (#70). Giving up counts: the clue was shown and its answer revealed.
           if (question.factId !== undefined) {
             markFactSeen(question.factId);
+          } else {
+            // The country quizzes rotate over countries the same way (#96).
+            markCountrySeen(session.quizType.key, question.countryId);
           }
           const stored = loadGuestQuiz(session.id);
           const entry: GuestAnswer = {
@@ -639,10 +643,6 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
               <IconSparkles size={16} stroke={1.9} aria-hidden="true" />
               {result.correctCountryName} is now learned — {result.currentStreak} in a row
             </p>
-          ) : null}
-
-          {result.nextReviewInDays !== undefined && result.wasCorrect ? (
-            <p className="review-note">{nextReviewText(result.nextReviewInDays)}</p>
           ) : null}
 
           <button
