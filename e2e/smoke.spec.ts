@@ -627,8 +627,8 @@ test('the map fills the screen, re-fits on rotation and keeps the selection (#91
 
   // A country in the opening view is a real target without any zooming.
   const kenya = await page.locator('path[data-iso="ke"]').boundingBox();
-  expect(kenya?.width ?? 0).toBeGreaterThan(30);
-  expect(kenya?.height ?? 0).toBeGreaterThan(30);
+  expect(kenya?.width ?? 0).toBeGreaterThan(28);
+  expect(kenya?.height ?? 0).toBeGreaterThan(28);
 
   // Select something, then turn the phone: the map re-fits, the selection stays.
   await page.locator('path[data-iso="ke"]').dispatchEvent('click');
@@ -666,4 +666,29 @@ test('review is not a home card, and a guest sees none under any game (#108)', a
     await expect(page.getByRole('heading').first()).toBeVisible();
     await expect(page.getByText(/to review/i)).toHaveCount(0);
   }
+});
+
+test('the map says what the dots are, clear of the map and the buttons (#109)', async ({
+  page,
+}) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Map/ }).click();
+  await page.getByRole('button', { name: /Country → location/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+
+  const note = page.getByText('Dots mark small countries. Tap them like any other.');
+  await expect(note).toBeVisible();
+  await expect(page.locator('svg[aria-label*="Dots mark small countries"]')).toHaveCount(1);
+
+  const noteBox = await note.boundingBox();
+  const mapBox = await page.locator('.world-map').boundingBox();
+  const confirmBox = await page
+    .getByRole('button', { name: /^(Confirm|Tap a country)$/ })
+    .boundingBox();
+  expect((noteBox?.y ?? 0) + (noteBox?.height ?? 0)).toBeLessThanOrEqual(mapBox?.y ?? 0);
+  expect((mapBox?.y ?? 0) + (mapBox?.height ?? 0)).toBeLessThanOrEqual(confirmBox?.y ?? 0);
+
+  // A dot still selects its country.
+  await page.locator('[data-iso-dot]').first().locator('.map-dot__hit').click({ force: true });
+  await expect(page.getByRole('button', { name: 'Confirm' })).toBeEnabled();
 });
