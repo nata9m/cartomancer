@@ -1795,32 +1795,6 @@ input.register-search {
   color: var(--text-primary);
 }
 
-/* ── Identity (#57) ─────────────────────────────────────────────────────── */
-
-/* Contour lines and a compass rose behind the home screen, drawn once as a mask
-   and filled from the theme's accent, so both themes get it for free. It is
-   decoration only: behind the content, no pointer events, hidden from the
-   accessibility tree by being a pseudo-element. */
-.home-shell {
-  position: relative;
-  isolation: isolate;
-}
-
-.home-shell::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 420px;
-  z-index: -1;
-  pointer-events: none;
-  background: var(--text-accent);
-  opacity: 0.1;
-  -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 412 420%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.2%22%3E %3Cpath d=%22M262 40c38-18 92 6 108 48s-4 90-44 112-96 18-122-18-24-92 10-124c14-12 30-20 48-18z%22/%3E %3Cpath d=%22M266 62c30-12 72 6 84 38s-4 72-36 90-76 12-96-16-18-72 8-98c12-10 24-16 40-14z%22/%3E %3Cpath d=%22M270 84c22-8 52 6 60 28s-4 54-28 66-56 8-70-12-12-52 6-72c8-8 18-12 32-10z%22/%3E %3Cpath d=%22M274 106c14-5 34 4 38 18s-4 36-20 44-38 4-46-10-6-34 4-46c6-5 14-8 24-6z%22/%3E %3Cpath d=%22M-10 250c40-30 96-26 130 6s30 90-6 122-92 36-130 6%22/%3E %3Cpath d=%22M-10 276c30-20 70-16 94 8s22 66-4 90-66 26-92 6%22/%3E %3Cpath d=%22M-10 302c20-12 46-8 60 8s14 42-2 56-42 16-58 4%22/%3E %3Cg transform=%22translate(80 110)%22 stroke-width=%221.4%22%3E %3Ccircle r=%2246%22/%3E%3Ccircle r=%2236%22 stroke-dasharray=%222 4%22/%3E %3Cpath d=%22M0-62 9-9 62 0 9 9 0 62-9 9-62 0-9-9z%22/%3E %3Cpath d=%22M0-44 5-5 44 0 5 5 0 44-5 5-44 0-5-5z%22 transform=%22rotate(45)%22/%3E %3C/g%3E %3C/svg%3E')
-    center top / 100% auto no-repeat;
-  mask: url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 412 420%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.2%22%3E %3Cpath d=%22M262 40c38-18 92 6 108 48s-4 90-44 112-96 18-122-18-24-92 10-124c14-12 30-20 48-18z%22/%3E %3Cpath d=%22M266 62c30-12 72 6 84 38s-4 72-36 90-76 12-96-16-18-72 8-98c12-10 24-16 40-14z%22/%3E %3Cpath d=%22M270 84c22-8 52 6 60 28s-4 54-28 66-56 8-70-12-12-52 6-72c8-8 18-12 32-10z%22/%3E %3Cpath d=%22M274 106c14-5 34 4 38 18s-4 36-20 44-38 4-46-10-6-34 4-46c6-5 14-8 24-6z%22/%3E %3Cpath d=%22M-10 250c40-30 96-26 130 6s30 90-6 122-92 36-130 6%22/%3E %3Cpath d=%22M-10 276c30-20 70-16 94 8s22 66-4 90-66 26-92 6%22/%3E %3Cpath d=%22M-10 302c20-12 46-8 60 8s14 42-2 56-42 16-58 4%22/%3E %3Cg transform=%22translate(80 110)%22 stroke-width=%221.4%22%3E %3Ccircle r=%2246%22/%3E%3Ccircle r=%2236%22 stroke-dasharray=%222 4%22/%3E %3Cpath d=%22M0-62 9-9 62 0 9 9 0 62-9 9-62 0-9-9z%22/%3E %3Cpath d=%22M0-44 5-5 44 0 5 5 0 44-5 5-44 0-5-5z%22 transform=%22rotate(45)%22/%3E %3C/g%3E %3C/svg%3E')
-    center top / 100% auto no-repeat;
-}
-
 /* The theme control: three segments, one of them the current choice. */
 .theme-setting {
   display: flex;
