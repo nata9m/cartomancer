@@ -48,6 +48,13 @@ export interface QuizQuestion {
    * never a correctness problem.
    */
   answerHashes?: string[];
+  /**
+   * Type-in formats only: the optional hint, first letter plus letter count
+   * ("K _ _ _ _ _ _ _ _ _"), see `answerHintFor` (#53). Telling the browser this
+   * is no leak worth defending: the answer is, by definition, one the player
+   * could be told, and the hashes above already let the browser check a guess.
+   */
+  answerHint?: string;
 }
 
 export interface QuizSession {
@@ -97,6 +104,13 @@ export interface AnswerResult {
    * a lost response (#58), which re-reads rather than re-matches.
    */
   matchedBy: 'exact' | 'alias' | 'fuzzy' | 'none' | 'replay';
+  /**
+   * A wrong answer that nonetheless names a country exactly — "Austria" typed
+   * for Australia, or Vienna typed for Canberra — carries that country's name,
+   * so the reveal can say what was typed *is* something, just not this (#53).
+   * Absent otherwise, and on a replay, which has no typed text to talk about.
+   */
+  matchedCountryName?: string;
   /** Null for guests — nothing is persisted, so there is no streak. */
   currentStreak: number | null;
   isLearned: boolean | null;

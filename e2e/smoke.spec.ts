@@ -124,6 +124,10 @@ test('a guest type-in round: an exact answer accepts itself, a typo waits for En
   // …but Enter hands it to the api, whose fuzzy matching forgives it.
   await input.press('Enter');
   await expect(reveal).toContainText('Correct');
+  // The fuzzy accept says what was typed and what the spelling is (#53).
+  await expect(page.locator('.feedback-note--close')).toContainText(
+    `Close — you typed ${typo}, it’s spelled ${capital}`,
+  );
   await page.getByRole('button', { name: 'Next' }).click();
 
   // 2. An exact answer accepts itself: no Enter, no Check answer (#69).
@@ -135,4 +139,101 @@ test('a guest has no account page: it sends them to sign in', async ({ page }) =
   await continueAsGuest(page);
   await page.goto('/account');
   await expect(page).toHaveURL(/\/login$/);
+});
+
+test('quiz screens are accessible: progress bar, announced reveal, focus on Next (#56)', async ({
+  page,
+}) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Capitals/ }).click();
+  await page.getByRole('button', { name: /Pick the capital city of the country shown/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+
+  const bar = page.getByRole('progressbar', { name: 'Quiz progress' });
+  await expect(bar).toHaveAttribute('aria-valuenow', '0');
+  await expect(bar).toHaveAttribute('aria-valuemin', '0');
+  const total = await bar.getAttribute('aria-valuemax');
+  expect(Number(total)).toBeGreaterThan(0);
+
+  const live = page.getByRole('status');
+  await expect(live).toHaveText('');
+  await page.locator('.option').first().click();
+
+  await expect(live).toHaveText(/^(Correct, |Wrong\. The answer is ).+/);
+  await expect(bar).toHaveAttribute('aria-valuenow', '1');
+  await expect(bar).toHaveAttribute('aria-valuetext', `1 of ${total} answered`);
+  await expect(page.getByRole('button', { name: /^(Next|See results)$/ })).toBeFocused();
+
+  if (Number(total) > 1) {
+    await page.keyboard.press('Enter');
+    await expect(live).toHaveText('');
+    await expect(page.locator('.prompt')).toBeFocused();
+  }
+});
+
+test('reduced motion turns every quiz animation off (#56)', async ({ page }) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Capitals/ }).click();
+  await page.getByRole('button', { name: /Pick the capital city of the country shown/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+
+  const animationOf = async () => {
+    await page.locator('.option').first().click();
+    return page.locator('.option--correct').evaluate((el) => getComputedStyle(el).animationName);
+  };
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await animationOf()).toBe('none');
+
+  await page.getByRole('button', { name: /^(Next|See results)$/ }).click();
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  expect(await animationOf()).toBe('option-pop');
+});
+
+test('type-in hints and a wrong-country notice (#53)', async ({ page, request }) => {
+  const response = await request.get('/bff/countries?region=all');
+  const { countries } = (await response.json()) as {
+    countries: { name: string; capital: string; capitalAliases: string[] }[];
+  };
+  const capitalOf = new Map(countries.map((country) => [country.name, country.capital]));
+  const everyCapital = countries.flatMap((country) => [country.capital, ...country.capitalAliases]);
+
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Capitals/ }).click();
+  await page.getByRole('button', { name: /Type the capital city of the country shown/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+
+  const input = page.locator('.answer-input');
+  const asked = capitalOf.get((await page.locator('.prompt-text').innerText()).trim()) as string;
+  expect(asked).toBeTruthy();
+
+  // Question 1: take the hint, then answer correctly. It is correct, and says
+  // it did not count.
+  await expect(page.locator('.answer-hint')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show a hint' }).click();
+  const hint = page.locator('.answer-hint');
+  await expect(hint).toHaveText(
+    new RegExp(`^${asked.charAt(0)}( |_|-|'|\\.)*$`.replace('(', '(?:'), 'u'),
+  );
+  await expect(page.getByRole('button', { name: 'Show a hint' })).toHaveCount(0);
+  await input.fill(asked);
+  await expect(page.locator('.result-row')).toContainText('Correct');
+  await expect(page.locator('.feedback-note--hinted')).toContainText('does not count');
+  await page.getByRole('button', { name: /^(Next|See results)$/ }).click();
+
+  // Question 2: another country's capital is a wrong answer that says so.
+  const second = capitalOf.get((await page.locator('.prompt-text').innerText()).trim()) as string;
+  const other = countries.find(
+    (country) =>
+      country.capital !== second &&
+      country.capital.length >= 6 &&
+      everyCapital.filter((capital) => capital === country.capital).length === 1,
+  );
+  expect(other).toBeTruthy();
+  await input.fill(other?.capital ?? '');
+  await input.press('Enter');
+  await expect(page.locator('.result-row')).toContainText(second);
+  await expect(page.locator('.feedback-note--other')).toContainText(
+    `${other?.capital} is the capital of ${other?.name} — the answer was ${second}`,
+  );
 });

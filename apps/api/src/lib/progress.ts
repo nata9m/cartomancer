@@ -45,22 +45,30 @@ export async function recordProgress(
     quizTypeKey: string;
     countryId: number;
     wasCorrect: boolean;
+    /**
+     * The player took the hint (#53). A correct answer with a hint is still
+     * correct — it is recorded, scored and shown as correct — but it is not
+     * evidence the country is known, so the streak neither grows nor resets.
+     * Ignored for a wrong answer: a wrong answer resets either way.
+     */
+    hintUsed?: boolean;
     answeredAt?: Date;
   },
 ): Promise<ProgressUpdate> {
   const { userId, quizTypeId, quizTypeKey, countryId, wasCorrect } = options;
+  const counts = wasCorrect && !options.hintUsed;
   const answeredAt = options.answeredAt ?? new Date();
   const threshold = learnedThresholdFor(quizTypeKey);
   // What a brand-new row starts at: one correct answer, or nothing.
-  const firstStreak = wasCorrect ? 1 : 0;
+  const firstStreak = counts ? 1 : 0;
 
   const rows = await db.$queryRawUnsafe<{ current_streak: number; is_learned: boolean }[]>(
     `INSERT INTO progress
             (user_id, country_id, quiz_type_id, current_streak, is_learned, last_answered_at)
      VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::boolean, $6::timestamptz)
      ON CONFLICT (user_id, country_id, quiz_type_id) DO UPDATE
-        SET current_streak  = CASE WHEN $7::boolean THEN progress.current_streak + 1 ELSE 0 END,
-            is_learned      = (CASE WHEN $7::boolean THEN progress.current_streak + 1 ELSE 0 END) >= $8::int,
+        SET current_streak  = CASE WHEN NOT $7::boolean THEN 0 WHEN $9::boolean THEN progress.current_streak + 1 ELSE progress.current_streak END,
+            is_learned      = (CASE WHEN NOT $7::boolean THEN 0 WHEN $9::boolean THEN progress.current_streak + 1 ELSE progress.current_streak END) >= $8::int,
             last_answered_at = EXCLUDED.last_answered_at
      RETURNING current_streak, is_learned`,
     userId,
@@ -71,6 +79,7 @@ export async function recordProgress(
     answeredAt,
     wasCorrect,
     threshold,
+    counts,
   );
   const row = rows[0];
   if (!row) {
@@ -84,7 +93,7 @@ export async function recordProgress(
   return {
     currentStreak,
     isLearned: row.is_learned,
-    newlyLearned: wasCorrect && currentStreak === threshold,
+    newlyLearned: counts && currentStreak === threshold,
   };
 }
 
