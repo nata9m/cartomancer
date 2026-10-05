@@ -501,3 +501,26 @@ test('Countries recall accepts an exact name as it is typed, and waits on a pref
   await expect(count).toHaveText('2');
   await expect(page.locator('.pill', { hasText: /^Niger$/ })).toBeVisible();
 });
+
+test('a guest sees no country twice until the whole pool has been seen (#96)', async ({ page }) => {
+  await continueAsGuest(page);
+  const asked: string[] = [];
+  // Oceania has 14 countries: with rounds of the default size the pool is spent
+  // inside one round, so play two short rounds from the picker and check the
+  // second never repeats the first.
+  for (let round = 0; round < 2; round += 1) {
+    await page.goto('/capitals?region=Oceania');
+    await page.getByRole('button', { name: /Pick the capital city of the country shown/ }).click();
+    await page.waitForURL(/\/quiz\/guest-/);
+    const total = Number((await page.locator('.progress-counter').innerText()).split('/')[1]);
+    // Answer the first 6 only; the rest are abandoned, so they must not count as seen.
+    for (let question = 1; question <= 6; question += 1) {
+      asked.push((await page.locator('.prompt-text').innerText()).trim());
+      await page.locator('.option').first().click();
+      await page.getByRole('button', { name: /^(Next|See results)$/ }).click();
+    }
+    expect(total).toBeGreaterThanOrEqual(6);
+  }
+  // 12 answered across two rounds from a pool of 14: all different.
+  expect(new Set(asked).size).toBe(12);
+});

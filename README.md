@@ -493,14 +493,19 @@ countries are asked first, and one answered wrong is no longer learned. The
 migration backfills the schedule from each row's streak (so nobody's progress
 moves) with due dates counted from the last answer.
 
-**Rotation.** One pool per (user, quiz type), *not* reset per filter. A
-session's questions are the eligible countries (after the region/difficulty
-filter) ordered by what is due: countries whose review has come round first, most
-overdue first (a miss is due at once, so it leads the next round); then countries
-never asked; then the rest, soonest-due first, which is also how a pool smaller
-than the round cycles back through itself. Ties are shuffled, which makes each
-new cycle feel like a reshuffle. `last_answered_at` is still stamped on every
-answer, right or wrong.
+**Rotation (#96).** Strict, and independent of the spaced-repetition schedule.
+One "last seen" pool per (user, quiz type), shared across region/difficulty
+filters. A session's questions are the eligible countries ordered by
+`progress.last_answered_at ASC NULLS FIRST`: countries never asked first (random
+among them), then the least recently asked, so nothing comes back before the
+whole pool has been seen and the cycle then starts again from the oldest. A right
+or a wrong answer both move a country to the back; a missed country returns in
+the next cycle, and "Practise these again" (#51) is the way to drill misses now.
+The `due_at` schedule from #50 still feeds "learned" but no longer picks
+questions (the columns are kept). Guests have no server memory, so the browser
+keeps `{ countryId: lastAskedMs }` per quiz type in localStorage
+(`seen-countries.ts`) and sends it when starting a round; the api applies the same
+rule to it. Fun facts rotates over clues the same way (#70).
 
 **Answer matching.** Exact first: the typed answer is normalised (case,
 accents, punctuation, `&`, `St.`/`the`) and compared against the canonical name

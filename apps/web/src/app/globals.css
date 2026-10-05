@@ -2039,11 +2039,3 @@ input.register-search {
     animation: option-pop 260ms ease-out;
   }
 }
-
-/* The spaced-repetition schedule after a correct answer (#50). */
-.review-note {
-  margin: 0;
-  font-size: 12px;
-  text-align: center;
-  color: var(--text-secondary);
-}

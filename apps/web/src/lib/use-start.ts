@@ -7,7 +7,14 @@ import { startQuizSession, startRecallSession } from './client-api';
 import type { Filters } from './filters';
 import { preloadQuestionFlags } from './flag-art';
 import { saveGuestQuiz, saveGuestRecall } from './guest-store';
+import { getSeenCountries } from './seen-countries';
 import { setRoundNote } from './round-note';
+
+/** The guest's country rotation for a quiz type, when there is one to send (#96). */
+export function countryRotation(quizTypeKey: string): { seenCountries?: Record<string, number> } {
+  const seenCountries = getSeenCountries(quizTypeKey);
+  return Object.keys(seenCountries).length > 0 ? { seenCountries } : {};
+}
 
 export const pendingKeyFor = (quizTypeKey: string, questionCount?: number): string =>
   `${quizTypeKey}:${questionCount ?? 'default'}`;
@@ -40,6 +47,9 @@ export function useSessionStarter(filters: Filters) {
         difficulty: filters.difficulty,
         ...(questionCount === undefined ? {} : { questionCount }),
         ...(seenFacts && Object.keys(seenFacts).length > 0 ? { seenFacts } : {}),
+        // Sent whoever is playing: the api ignores it for a signed-in player,
+        // whose rotation is on the server, and it is cheaper than asking here.
+        ...countryRotation(quizTypeKey),
       });
       if (session.isGuest) {
         saveGuestQuiz({ session, answers: [] });

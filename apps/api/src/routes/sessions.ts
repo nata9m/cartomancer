@@ -60,6 +60,15 @@ const startSessionSchema = z.object({
     .record(z.string().regex(/^\d+$/), z.number().int().nonnegative())
     .refine((seen) => Object.keys(seen).length <= 2000, 'seenFacts is too large')
     .optional(),
+  /**
+   * Guest rotation for the country quizzes (#96): country id → epoch ms it was
+   * last asked, one list per quiz type. Ignored for signed-in play, where
+   * progress.last_answered_at is the memory.
+   */
+  seenCountries: z
+    .record(z.string().regex(/^\d+$/), z.number().int().nonnegative())
+    .refine((seen) => Object.keys(seen).length <= 400, 'seenCountries is too large')
+    .optional(),
 });
 
 const answerSchema = z.object({
@@ -193,6 +202,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
         filters,
         limit: requestedCount,
         requireFacts: false,
+        seenCountries: body.seenCountries,
       });
 
       if (countryIds.length === 0) {
@@ -453,7 +463,6 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
       currentStreak: progress.currentStreak,
       isLearned: progress.isLearned,
       newlyLearned: progress.newlyLearned,
-      nextReviewInDays: progress.dueInDays,
     };
     return result;
   });
