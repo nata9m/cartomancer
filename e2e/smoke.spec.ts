@@ -31,6 +31,14 @@ async function continueAsGuest(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Cartomancer' })).toBeVisible();
   // The guest home, not the signed-in one.
   await expect(page.locator('.signin-banner')).toBeVisible();
+  // A plain page behind the header: no contour or compass drawing (#102).
+  const behind = await page.evaluate(() => {
+    const main = document.querySelector('main') as Element;
+    const before = getComputedStyle(main, '::before');
+    return { content: before.content, mask: before.maskImage || before.webkitMaskImage || 'none' };
+  });
+  expect(behind.content).toBe('none');
+  expect(behind.mask).toBe('none');
   // The quiz cards carry no learned count: that lives in the stats strip (#94).
   await expect(page.locator('.card--tarot .card-number')).toHaveCount(0);
   await expect(page.locator('.card--tarot .card-chevron')).toHaveCount(5);

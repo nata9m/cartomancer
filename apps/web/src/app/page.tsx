@@ -52,7 +52,7 @@ export default async function HomePage() {
   }
 
   return (
-    <main className="app-shell home-shell">
+    <main className="app-shell">
       <header className="home-header">
         <div>
           <h1 className="app-title">Cartomancer</h1>
