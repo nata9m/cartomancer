@@ -1,7 +1,6 @@
 import Link from 'next/link';
-import type { ProgressSummary } from '@cartomancer/shared';
 import { CardShell } from './Cards';
-import { IconBuildingBank, IconBulb, IconFlag, IconMap, IconSparkles, IconWorld } from './icons';
+import { IconBuildingBank, IconBulb, IconFlag, IconMap, IconWorld } from './icons';
 
 /**
  * The four home-screen category cards.
@@ -15,24 +14,14 @@ import { IconBuildingBank, IconBulb, IconFlag, IconMap, IconSparkles, IconWorld 
  * No filters travel with these links. Each screen opens on "All regions" and
  * owns its own chips, so nothing off this screen can narrow a round invisibly.
  *
- * Styled as tarot-like cards (#57): each mode is a card, and a signed-in player's
- * learned count is the card's number, so the home screen doubles as the progress
- * display. A guest has no count to show, so their cards carry none rather than a
- * zero that would read as a record. Fun facts has no learned count of its own and
- * wears a star.
+ * Title, description and chevron, and nothing about progress: the learned counts
+ * live in the stats strip above (#33), and showing them on the cards as well said
+ * everything twice (#94).
  *
  * A server component: four links and no state, so none of this needs to reach
  * the browser.
  */
-export function HomeQuizCards({ summary }: { summary?: ProgressSummary | null }) {
-  const number = (learned: number | undefined) =>
-    summary && learned !== undefined ? (
-      <span className="card-number" aria-label={`${learned} of ${summary.totalCountries} learned`}>
-        {learned}
-        <small aria-hidden="true">/{summary.totalCountries}</small>
-      </span>
-    ) : undefined;
-
+export function HomeQuizCards() {
   return (
     <div className="stack">
       <Link className="card card--tarot" href="/capitals">
@@ -40,7 +29,6 @@ export function HomeQuizCards({ summary }: { summary?: ProgressSummary | null })
           icon={<IconBuildingBank size={19} stroke={1.75} />}
           title="Capitals"
           description="Match countries with their capital cities"
-          trailing={number(summary?.learned.capitals)}
         />
       </Link>
 
@@ -49,7 +37,6 @@ export function HomeQuizCards({ summary }: { summary?: ProgressSummary | null })
           icon={<IconMap size={19} stroke={1.75} />}
           title="Countries"
           description="Recall every country in a region from memory"
-          trailing={number(summary?.learned.countries)}
         />
       </Link>
 
@@ -58,7 +45,6 @@ export function HomeQuizCards({ summary }: { summary?: ProgressSummary | null })
           icon={<IconFlag size={19} stroke={1.75} />}
           title="Flags"
           description="Learn the flag of every country"
-          trailing={number(summary?.learned.flags)}
         />
       </Link>
 
@@ -75,7 +61,6 @@ export function HomeQuizCards({ summary }: { summary?: ProgressSummary | null })
           icon={<IconBulb size={19} stroke={1.75} />}
           title="Fun facts"
           description="Guess the country from a clue"
-          trailing={<IconSparkles size={18} stroke={1.6} aria-hidden="true" />}
         />
       </Link>
     </div>

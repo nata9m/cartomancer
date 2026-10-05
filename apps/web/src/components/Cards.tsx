@@ -6,12 +6,10 @@ export function CardShell({
   icon,
   title,
   description,
-  trailing,
 }: {
   icon?: ReactNode;
   title: string;
   description: string;
-  trailing?: ReactNode;
 }) {
   return (
     <>
@@ -21,7 +19,7 @@ export function CardShell({
         <span className="card-description">{description}</span>
       </span>
       <span className="card-chevron">
-        {trailing ?? <IconChevronRight size={18} stroke={1.75} />}
+        <IconChevronRight size={18} stroke={1.75} />
       </span>
     </>
   );

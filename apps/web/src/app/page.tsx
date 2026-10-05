@@ -89,7 +89,7 @@ export default async function HomePage() {
       {/* No filter chips here any more (#28). Every card opens a screen that
           owns its own, so a chip on this one either duplicated theirs or, for
           the three that ignored it, promised something it did not do. */}
-      <HomeQuizCards summary={summary} />
+      <HomeQuizCards />
 
       {/* Not a fifth card: the four above start a round, this one only looks
           something up, and giving it the same weight would invite a tap from
