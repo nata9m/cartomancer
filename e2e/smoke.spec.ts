@@ -524,3 +524,29 @@ test('a guest sees no country twice until the whole pool has been seen (#96)', a
   // 12 answered across two rounds from a pool of 14: all different.
   expect(new Set(asked).size).toBe(12);
 });
+
+test('a wrong type-in answer that is another country adds no extra sentence (#93)', async ({
+  page,
+}) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Flags/ }).click();
+  await page.getByRole('button', { name: /Type the country a flag belongs to/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+
+  const input = page.locator('.answer-input');
+  const reveal = page.locator('.result-row');
+  // Almost always wrong on the first try; if the flag happens to be Chad's, move on.
+  for (const guess of ['Chad', 'Peru', 'Japan']) {
+    await input.fill(guess);
+    await input.press('Enter');
+    await expect(reveal).toBeVisible();
+    if (!(await reveal.innerText()).includes('Correct')) break;
+    await page.getByRole('button', { name: /^(Next|See results)$/ }).click();
+  }
+
+  // The result card names the right answer, and nothing explains the mistake.
+  await expect(reveal).toHaveClass(/result-row--wrong/);
+  await expect(page.locator('.feedback-note')).toHaveCount(0);
+  await expect(page.getByRole('status')).not.toContainText('different country');
+  await expect(page.getByRole('status')).toContainText(/^Wrong\. The answer is /);
+});
