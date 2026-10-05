@@ -1,4 +1,4 @@
-import { learnedThresholdForCategory } from '@cartomancer/shared';
+import { learnedIntervalDaysForCategory } from '@cartomancer/shared';
 
 /**
  * The three categories with a stat on the home strip, and what each learned
@@ -31,7 +31,7 @@ interface LearnedCopy {
   label: string;
   /**
    * What "learned" means here, at most two sentences, and true of the code:
-   * see recordProgress (three in a row, reset by a wrong answer) and the recall
+   * see recordProgress (a review interval of two weeks, reset by a wrong answer) and the recall
    * guess handler (one recall, and no wrong answer to reset it — an
    * unrecognised guess writes nothing at all).
    */
@@ -41,17 +41,20 @@ interface LearnedCopy {
 }
 
 /**
- * Every threshold is read from the taxonomy rather than written into the
- * sentence, so changing LEARNED_STREAK_THRESHOLD cannot leave the explanation
- * lying. Per category, not one shared constant: capitals and flags happen to
- * agree today, and a sentence that quotes the wrong category's number would be
- * a hard bug to spot.
+ * The interval is read from the taxonomy rather than written into the sentence,
+ * so changing LEARNED_INTERVAL_DAYS cannot leave the explanation lying. Per
+ * category, not one shared constant: a sentence that quotes the wrong category's
+ * number would be a hard bug to spot.
  */
-const streakSentence = (thing: string, category: LearnedCategory): string =>
-  `A ${thing} counts as learned after you get it right ` +
-  `${learnedThresholdForCategory(category)} times in a row, in either direction ` +
-  'and typed or multiple choice. One wrong answer resets the streak and sends it ' +
-  'back to “Not learned yet”.';
+const spacedSentence = (thing: string, category: LearnedCategory): string => {
+  const weeks = learnedIntervalDaysForCategory(category) / 7;
+  return (
+    `A ${thing} counts as learned once you can hold it for ${weeks} weeks: each time you ` +
+    'get it right it comes back later, and when the gap reaches that long it is learned, ' +
+    'in either direction and typed or multiple choice. A wrong answer brings it back at ' +
+    'once and sends it back to “Not learned yet”.'
+  );
+};
 
 export const LEARNED_COPY: Record<LearnedCategory, LearnedCopy> = {
   countries: {
@@ -63,11 +66,11 @@ export const LEARNED_COPY: Record<LearnedCategory, LearnedCopy> = {
   },
   capitals: {
     label: 'Capitals learned',
-    explanation: streakSentence('capital', 'capitals'),
+    explanation: spacedSentence('capital', 'capitals'),
     detail: 'capital',
   },
   flags: {
     label: 'Flags learned',
-    explanation: streakSentence('flag', 'flags'),
+    explanation: spacedSentence('flag', 'flags'),
   },
 };

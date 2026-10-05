@@ -275,3 +275,141 @@ test('a guest can practise exactly the countries they missed (#51)', async ({ pa
     expect(prompt).toContain([...asked].find((name) => prompt.includes(name)) ?? '\u0000');
   }
 });
+
+test('the theme can be chosen, sticks without a flash, and wins over the OS (#57)', async ({
+  page,
+  context,
+  request,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await continueAsGuest(page);
+  const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const html = page.locator('html');
+
+  // System follows the OS: no attribute, and the dark palette from the media query.
+  await expect(html).not.toHaveAttribute('data-theme', /.*/);
+  expect(await background()).toBe('rgb(18, 22, 31)');
+
+  // Pinning light beats a dark OS.
+  await page.getByRole('radio', { name: 'Light' }).click();
+  await expect(html).toHaveAttribute('data-theme', 'light');
+  expect(await background()).toBe('rgb(245, 240, 228)');
+  await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked();
+
+  // The cookie is what the server renders from: a request with no JavaScript at
+  // all gets the theme in the first bytes, which is the "no flash".
+  await expect
+    .poll(async () => (await context.cookies()).find((c) => c.name === 'cartomancer-theme')?.value)
+    .toBe('light');
+  const cookie = (await context.cookies()).map((c) => `${c.name}=${c.value}`).join('; ');
+  const served = await request.get('/', { headers: { cookie } });
+  expect(await served.text()).toMatch(/<html[^>]*data-theme="light"/);
+
+  // And so does the browser chrome colour.
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f5f0e4');
+
+  // Pinning dark, on a light OS.
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.getByRole('radio', { name: 'Dark' }).click();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  expect(await background()).toBe('rgb(18, 22, 31)');
+  await page.reload();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  await expect(page.getByRole('radio', { name: 'Dark' })).toBeChecked();
+
+  // Back to System: the attribute goes, and the OS decides again.
+  await page.getByRole('radio', { name: 'System' }).click();
+  await expect(html).not.toHaveAttribute('data-theme', /.*/);
+  expect(await background()).toBe('rgb(245, 240, 228)');
+});
+
+test('a guest plays a map round: select, confirm, and see where it was (#52)', async ({
+  page,
+  request,
+}) => {
+  const response = await request.get('/bff/countries?region=all');
+  const { countries } = (await response.json()) as {
+    countries: { name: string; isoCode: string }[];
+  };
+  const isoOf = new Map(countries.map((country) => [country.name, country.isoCode.toLowerCase()]));
+
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Map/ }).click();
+  await page.getByRole('button', { name: /Country → location/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+
+  const map = page.locator('.world-map__svg');
+  await expect(map).toBeVisible();
+  // The geometry is loaded on demand: the countries appear once it has arrived.
+  await expect(page.locator('.map-country')).toHaveCount(195);
+  const confirm = page.getByRole('button', { name: /^(Confirm|Tap a country)$/ });
+  await expect(confirm).toBeDisabled();
+
+  const asked = async () => {
+    const name = (await page.locator('.prompt-text').innerText()).trim();
+    const iso = isoOf.get(name);
+    expect(iso, `no country called ${name}`).toBeTruthy();
+    return { name, iso: iso as string };
+  };
+  // A click straight on the element: where a country's middle is on screen can
+  // be somebody else's land (Chile, Norway), and the geometry is not what is
+  // being tested here.
+  const tap = (iso: string) => page.locator(`path[data-iso="${iso}"]`).dispatchEvent('click');
+
+  // 1. Zooming in and out and back to the world.
+  const widthOf = async () => Number(((await map.getAttribute('viewBox')) ?? '').split(' ')[2]);
+  expect(await widthOf()).toBe(1000);
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  expect(await widthOf()).toBeLessThan(1000);
+  await page.getByRole('button', { name: 'Show the whole world' }).click();
+  expect(await widthOf()).toBe(1000);
+
+  // A drag moves the map and must not select the country it started on, even
+  // though the click that ends it lands on one.
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  const frame = await map.boundingBox();
+  expect(frame).toBeTruthy();
+  const viewBefore = await map.getAttribute('viewBox');
+  const centre = {
+    x: (frame?.x ?? 0) + (frame?.width ?? 0) / 2,
+    y: (frame?.y ?? 0) + (frame?.height ?? 0) / 2,
+  };
+  await page.mouse.move(centre.x, centre.y);
+  await page.mouse.down();
+  await page.mouse.move(centre.x - 60, centre.y - 20, { steps: 6 });
+  await page.mouse.up();
+  expect(await map.getAttribute('viewBox')).not.toBe(viewBefore);
+  await expect(page.locator('path.map-country--selected')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show the whole world' }).click();
+
+  // 2. The right country: selected, confirmed, shown in green.
+  const first = await asked();
+  await tap(first.iso);
+  await expect(page.locator('path.map-country--selected')).toHaveAttribute('data-iso', first.iso);
+  await expect(page.getByRole('button', { name: 'Confirm' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.locator('.result-row')).toContainText('Correct');
+  await expect(page.locator('path.map-country--correct')).toHaveAttribute('data-iso', first.iso);
+  await page.getByRole('button', { name: /^(Next|See results)$/ }).click();
+
+  // 3. A wrong one: the reveal shows the right country and says what was tapped.
+  const second = await asked();
+  const other = countries.find((country) => country.isoCode.toLowerCase() !== second.iso);
+  expect(other).toBeTruthy();
+  const otherIso = (other?.isoCode ?? '').toLowerCase();
+  await tap(otherIso);
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.locator('.result-row')).toContainText(second.name);
+  await expect(page.locator('path.map-country--correct')).toHaveAttribute('data-iso', second.iso);
+  await expect(page.locator('path.map-country--wrong')).toHaveAttribute('data-iso', otherIso);
+  await expect(page.locator('.feedback-note--other')).toContainText(`That was ${other?.name}`);
+  await page.getByRole('button', { name: /^(Next|See results)$/ }).click();
+
+  // 4. Nothing selected means nothing to confirm; giving up is still possible.
+  await expect(page.locator('path.map-country--selected')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Tap a country' })).toBeDisabled();
+  await page.getByRole('button', { name: /don.t know/i }).click();
+  await expect(page.locator('.result-row')).toBeVisible();
+  await expect(page.locator('path.map-country--wrong')).toHaveCount(0);
+});

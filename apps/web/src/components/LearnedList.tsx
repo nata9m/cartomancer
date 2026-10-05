@@ -1,10 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import {
-  learnedThresholdForCategory,
-  type CountryProgress,
-  type CountryRef,
-} from '@cartomancer/shared';
+import { type CountryProgress, type CountryRef } from '@cartomancer/shared';
 import { CountryRow } from './CountryRow';
 import { FilterChips } from './FilterChips';
 import { IconArrowLeft } from './icons';
@@ -37,7 +33,7 @@ export function LearnedList({
   filters: Filters;
 }) {
   const copy = LEARNED_COPY[category];
-  const threshold = learnedThresholdForCategory(category);
+  const oneStep = category === 'countries';
   const stateById = new Map(progress.map((row) => [row.countryId, row]));
 
   // Re-sorted here rather than trusting the api's ORDER BY name, for the reason
@@ -60,18 +56,18 @@ export function LearnedList({
     copy.detail === 'capital' ? <span className="missed-answer">{country.capital}</span> : null;
 
   /**
-   * How close an unlearned country is, shown only where it can move: recall's
-   * threshold is one recall, so a country there is either learned or on zero and
-   * "0/1" would be noise.
+   * Progress on an unlearned country: how many right in a row so far, shown only
+   * where it can move. Recall has no steps (one recall learns it), so a country
+   * there is either learned or on zero and a count would be noise.
    */
   const streak = (country: CountryRef): ReactNode => {
     const best = stateById.get(country.id)?.bestStreak ?? 0;
-    if (threshold <= 1 || best <= 0) {
+    if (oneStep || best <= 0) {
       return null;
     }
     return (
-      <span className="learned-streak" title={`${best} of ${threshold} correct in a row`}>
-        {best}/{threshold}
+      <span className="learned-streak" title={`${best} correct in a row so far`}>
+        {best} in a row
       </span>
     );
   };

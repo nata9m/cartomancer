@@ -27,3 +27,18 @@ export function revealAnnouncement(
   const streak = result.currentStreak ? `, ${result.currentStreak} in a row` : '';
   return `${verdict} ${result.correctCountryName} is now learned${streak}.`;
 }
+
+/**
+ * "See you again in 6 days": the spaced-repetition schedule made visible (#50),
+ * shown after a correct answer. A value under a day is the hint's one-day
+ * reminder or a country that is simply back next round.
+ */
+export function nextReviewText(days: number): string {
+  if (days <= 1) return 'Next review tomorrow';
+  const rounded = Math.round(days);
+  if (rounded >= 14 && rounded % 7 === 0) {
+    const weeks = rounded / 7;
+    return `Next review in ${weeks} weeks`;
+  }
+  return `Next review in ${rounded} days`;
+}
