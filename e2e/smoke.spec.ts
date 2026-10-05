@@ -31,6 +31,9 @@ async function continueAsGuest(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Cartomancer' })).toBeVisible();
   // The guest home, not the signed-in one.
   await expect(page.locator('.signin-banner')).toBeVisible();
+  // The quiz cards carry no learned count: that lives in the stats strip (#94).
+  await expect(page.locator('.card--tarot .card-number')).toHaveCount(0);
+  await expect(page.locator('.card--tarot .card-chevron')).toHaveCount(5);
 }
 
 test('a guest plays a Capitals multiple-choice round through to the results', async ({ page }) => {
