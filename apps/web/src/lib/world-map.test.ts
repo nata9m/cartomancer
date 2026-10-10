@@ -6,6 +6,7 @@ import {
   containScale,
   coverScale,
   initialCamera,
+  keepView,
   MAX_ZOOM,
   panBy,
   scaleOf,
@@ -123,6 +124,31 @@ describe('re-fitting when the frame changes (#91)', () => {
         expect(view.y + view.h).toBeLessThanOrEqual(map.height + 1e-9);
       }
     }
+  });
+});
+
+describe('keeping the view when the frame settles (#112)', () => {
+  it("keeps the scale and the point under the frame's corner when it shrinks", () => {
+    const shorter = { width: phone.width, height: phone.height - 23 };
+    const camera = zoomAt(initialCamera(map, phone), 3, { x: 560, y: 300 }, map, phone);
+    const before = viewOf(camera, map, phone);
+    const kept = keepView(camera, map, phone, shorter);
+    const after = viewOf(kept, map, shorter);
+    expect(scaleOf(kept, map, shorter)).toBeCloseTo(scaleOf(camera, map, phone), 6);
+    expect(after.x).toBeCloseTo(before.x, 6);
+    expect(after.y).toBeCloseTo(before.y, 6);
+    expect(after.w).toBeCloseTo(before.w, 6);
+  });
+
+  it('does the same when the frame grows, and stays on the map', () => {
+    const taller = { width: phone.width, height: phone.height + 40 };
+    const camera = zoomAt(initialCamera(map, phone), 5, { x: 300, y: 200 }, map, phone);
+    const before = viewOf(camera, map, phone);
+    const kept = keepView(camera, map, phone, taller);
+    const after = viewOf(kept, map, taller);
+    expect(after.x).toBeCloseTo(before.x, 6);
+    expect(after.y).toBeCloseTo(before.y, 6);
+    expect(after.y + after.h).toBeLessThanOrEqual(map.height + 1e-9);
   });
 });
 

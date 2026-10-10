@@ -153,7 +153,7 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
   // round is Enter, Enter, Enter, and announces the outcome for screen readers.
   useEffect(() => {
     if (phase === 'revealed') {
-      nextRef.current?.focus();
+      nextRef.current?.focus({ preventScroll: true });
     }
   }, [phase]);
 
@@ -380,6 +380,76 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
           : null;
   const progress = total === 0 ? 0 : Math.round((answeredCount / total) * 100);
 
+  // Under the map, the buttons before the answer and the result after it share one
+  // strip of a fixed height (see `.map-strip`), so revealing the answer does not
+  // resize the map's frame and with it the view of the map (#112).
+  const mapActions =
+    phase === 'answering' ? (
+      <div className="answer-form">
+        <button
+          type="button"
+          className="button-secondary"
+          disabled={busy || mapChoice === null}
+          onClick={() => mapChoice && void answer(mapChoice)}
+        >
+          {mapChoice ? 'Confirm' : 'Tap a country'}
+        </button>
+        <button
+          type="button"
+          className="link-underline give-up"
+          disabled={busy}
+          onClick={() => void answer('', true)}
+        >
+          I don&rsquo;t know
+        </button>
+      </div>
+    ) : null;
+  const revealed = result ? (
+    <>
+      {format === 'type_in' || format === 'map_tap' ? (
+        <div className={`result-row result-row--${result.wasCorrect ? 'correct' : 'wrong'}`}>
+          {result.wasCorrect ? (
+            <>
+              <IconCheck size={16} stroke={2} />
+              Correct
+            </>
+          ) : (
+            <>
+              <IconX size={16} stroke={2} />
+              {result.correctAnswer}
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {feedback ? (
+        <p className={`feedback-note feedback-note--${feedback.kind}`}>
+          {feedback.parts.map((part, key) =>
+            part.emphasis ? <em key={key}>{part.text}</em> : part.text,
+          )}
+        </p>
+      ) : null}
+
+      {result.newlyLearned ? (
+        <p className="learned-note">
+          <IconSparkles size={16} stroke={1.9} aria-hidden="true" />
+          {result.correctCountryName} is now learned — {result.currentStreak} in a row
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        className="button-primary"
+        ref={nextRef}
+        onClick={() => void next()}
+        disabled={busy}
+      >
+        {index >= total - 1 ? 'See results' : 'Next'}
+        <IconArrowRight size={16} stroke={2} />
+      </button>
+    </>
+  ) : null;
+
   return (
     <main className={`app-shell${format === 'map_tap' ? ' app-shell--map' : ''}`}>
       <div className="quiz-header">
@@ -517,26 +587,6 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
                 : null
             }
           />
-          {phase === 'answering' ? (
-            <div className="answer-form">
-              <button
-                type="button"
-                className="button-secondary"
-                disabled={busy || mapChoice === null}
-                onClick={() => mapChoice && void answer(mapChoice)}
-              >
-                {mapChoice ? 'Confirm' : 'Tap a country'}
-              </button>
-              <button
-                type="button"
-                className="link-underline give-up"
-                disabled={busy}
-                onClick={() => void answer('', true)}
-              >
-                I don&rsquo;t know
-              </button>
-            </div>
-          ) : null}
         </>
       ) : (
         <form
@@ -613,50 +663,10 @@ export function QuizRunner({ sessionId }: { sessionId: string }) {
         </div>
       ) : null}
 
-      {phase === 'revealed' && result ? (
-        <>
-          {format === 'type_in' || format === 'map_tap' ? (
-            <div className={`result-row result-row--${result.wasCorrect ? 'correct' : 'wrong'}`}>
-              {result.wasCorrect ? (
-                <>
-                  <IconCheck size={16} stroke={2} />
-                  Correct
-                </>
-              ) : (
-                <>
-                  <IconX size={16} stroke={2} />
-                  {result.correctAnswer}
-                </>
-              )}
-            </div>
-          ) : null}
-
-          {feedback ? (
-            <p className={`feedback-note feedback-note--${feedback.kind}`}>
-              {feedback.parts.map((part, key) =>
-                part.emphasis ? <em key={key}>{part.text}</em> : part.text,
-              )}
-            </p>
-          ) : null}
-
-          {result.newlyLearned ? (
-            <p className="learned-note">
-              <IconSparkles size={16} stroke={1.9} aria-hidden="true" />
-              {result.correctCountryName} is now learned — {result.currentStreak} in a row
-            </p>
-          ) : null}
-
-          <button
-            type="button"
-            className="button-primary"
-            ref={nextRef}
-            onClick={() => void next()}
-            disabled={busy}
-          >
-            {index >= total - 1 ? 'See results' : 'Next'}
-            <IconArrowRight size={16} stroke={2} />
-          </button>
-        </>
+      {format === 'map_tap' ? (
+        <div className="map-strip">{phase === 'revealed' && result ? revealed : mapActions}</div>
+      ) : phase === 'revealed' && result ? (
+        revealed
       ) : null}
     </main>
   );

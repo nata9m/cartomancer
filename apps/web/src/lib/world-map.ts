@@ -108,6 +108,35 @@ export function scaleOf(camera: Camera, map: Pick<WorldMapData, 'width' | 'heigh
 }
 
 /**
+ * The camera for a frame of a new size that leaves the map exactly where it is on
+ * screen (#112): the same pixels per map unit, and the frame's top-left corner
+ * still over the same point of the map. A frame that grows or shrinks by a few
+ * pixels then shows a little more or less at its far edges, instead of
+ * re-fitting, which on a small change reads as the whole map jumping.
+ *
+ * A rotation or a window resize is a different thing and re-fits (#91); this is
+ * for the frame settling while the player is looking at an answer.
+ */
+export function keepView(
+  camera: Camera,
+  map: Pick<WorldMapData, 'width' | 'height'>,
+  from: Box,
+  to: Box,
+): Camera {
+  const scale = scaleOf(camera, map, from);
+  const held = clampCamera(camera, map, from);
+  return clampCamera(
+    {
+      cx: held.cx + (to.width - from.width) / 2 / scale,
+      cy: held.cy + (to.height - from.height) / 2 / scale,
+      k: scale / containScale(map, to),
+    },
+    map,
+    to,
+  );
+}
+
+/**
  * Where a question starts: the map filling the frame, centred on a neutral spot
  * (Europe and Africa, the middle of the Natural Earth map) so that the opening
  * view says nothing about where the answer is.

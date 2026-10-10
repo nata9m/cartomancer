@@ -2009,6 +2009,17 @@ input.register-search {
   letter-spacing: -0.3px;
 }
 
+/* The strip under the map holds the Confirm buttons, then the result and Next.
+   Both fill the same height, so the map's frame, and with it the view, stays put
+   when the answer is revealed (#112). */
+.map-strip {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: var(--map-strip-height, 92px);
+}
+
 /* What the dots are (#109): one muted line under the prompt, in the flow so it
    never sits over the map or the buttons. */
 .map-note {
