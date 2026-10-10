@@ -7,7 +7,9 @@ import {
   coverScale,
   initialCamera,
   keepView,
-  MAX_ZOOM,
+  MAX_SCALE,
+  maxZoomFor,
+  MIN_MAX_ZOOM,
   panBy,
   scaleOf,
   viewBoxOf,
@@ -172,7 +174,26 @@ describe('zoomAt', () => {
     for (let step = 0; step < 40; step += 1) {
       camera = zoomAt(camera, 2, { x: 520, y: 260 }, map, phone);
     }
-    expect(camera.k).toBeCloseTo(MAX_ZOOM);
+    expect(camera.k).toBeCloseTo(maxZoomFor(map, phone));
+  });
+
+  it('allows the same sharpness on any screen, not the same multiple (#113)', () => {
+    for (const box of [phone, landscapePhone, desktop]) {
+      let camera = initialCamera(map, box);
+      for (let step = 0; step < 60; step += 1) {
+        camera = zoomAt(camera, 1.5, { x: 520, y: 260 }, map, box);
+      }
+      expect(scaleOf(camera, map, box)).toBeGreaterThanOrEqual(
+        Math.min(MAX_SCALE, MIN_MAX_ZOOM * containScale(map, box)) - 1e-9,
+      );
+    }
+    // On a phone that is far more than 14x: enough to make Fiji a fingertip wide.
+    expect(maxZoomFor(map, phone)).toBeGreaterThan(40);
+    expect(maxZoomFor(map, phone) * containScale(map, phone)).toBeCloseTo(MAX_SCALE);
+  });
+
+  it('never allows less than it used to, on a big screen', () => {
+    expect(maxZoomFor(map, { width: 3000, height: 2000 })).toBe(MIN_MAX_ZOOM);
   });
 
   it('stays on the map when zooming at a corner', () => {
@@ -208,7 +229,7 @@ describe('panBy', () => {
 describe('clampCamera', () => {
   it('repairs a camera that is too close, too far, or off the map', () => {
     const fixed = clampCamera({ cx: -50, cy: 9999, k: 99 }, map, phone);
-    expect(fixed.k).toBe(MAX_ZOOM);
+    expect(fixed.k).toBe(maxZoomFor(map, phone));
     expect(clampCamera({ cx: 0, cy: 0, k: 0.01 }, map, phone).k).toBe(1);
     const view = viewOf(fixed, map, phone);
     expect(view.x).toBeGreaterThanOrEqual(-1e-9);

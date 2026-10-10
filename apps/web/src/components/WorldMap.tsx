@@ -5,7 +5,7 @@ import { IconMinus, IconPlus, IconWorld } from './icons';
 import {
   initialCamera,
   keepView,
-  MAX_ZOOM,
+  maxZoomFor,
   panBy,
   scaleOf,
   viewBoxOf,
@@ -353,7 +353,7 @@ export function WorldMap({
               type="button"
               className="map-control"
               aria-label="Zoom in"
-              disabled={zoom >= MAX_ZOOM - 0.01}
+              disabled={zoom >= (data && box ? maxZoomFor(data, box) : 1) - 0.01}
               onClick={() => zoomBy(ZOOM_STEP)}
             >
               <IconPlus size={16} stroke={2} />

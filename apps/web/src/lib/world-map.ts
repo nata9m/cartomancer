@@ -57,8 +57,29 @@ export interface Camera {
   k: number;
 }
 
-/** How far in the map goes, as a multiple of the whole world fitting the frame. */
-export const MAX_ZOOM = 14;
+/**
+ * How far in the map goes (#113), as pixels per map unit: a limit on the screen,
+ * not on a multiple of the world, because "the whole world fitting the frame" is
+ * a few hundred pixels on a phone and over a thousand on a desktop, and a country
+ * is as small to a fingertip at one multiple as the other is large.
+ *
+ * 18 px per map unit makes the smallest country that has no marker (Fiji, Jamaica,
+ * Qatar, a bit over two map units across at its narrowest) about 45px wide, a
+ * fingertip, and a mid-sized one such as Albania a few hundred.
+ */
+export const MAX_SCALE = 18;
+
+/**
+ * The least zoom the map always allows, as a multiple of the world fitting the
+ * frame (what the limit was before #113): a large screen, where this is already
+ * more than `MAX_SCALE` asks for, keeps it.
+ */
+export const MIN_MAX_ZOOM = 14;
+
+/** The furthest in the map goes in this frame, as a multiple of the world fitting it. */
+export function maxZoomFor(map: Pick<WorldMapData, 'width' | 'height'>, box: Box): number {
+  return Math.max(MIN_MAX_ZOOM, MAX_SCALE / containScale(map, box));
+}
 
 /** Pixels per map unit at which the whole world just fits inside the frame. */
 export function containScale(map: Pick<WorldMapData, 'width' | 'height'>, box: Box): number {
@@ -80,7 +101,7 @@ export function clampCamera(
   map: Pick<WorldMapData, 'width' | 'height'>,
   box: Box,
 ): Camera {
-  const k = Math.min(MAX_ZOOM, Math.max(1, camera.k));
+  const k = Math.min(maxZoomFor(map, box), Math.max(1, camera.k));
   const scale = containScale(map, box) * k;
   const w = box.width / scale;
   const h = box.height / scale;
@@ -177,7 +198,7 @@ export function zoomAt(
   box: Box,
 ): Camera {
   const before = viewOf(camera, map, box);
-  const k = Math.min(MAX_ZOOM, Math.max(1, clampCamera(camera, map, box).k * factor));
+  const k = Math.min(maxZoomFor(map, box), Math.max(1, clampCamera(camera, map, box).k * factor));
   const scale = containScale(map, box) * k;
   const w = box.width / scale;
   const h = box.height / scale;
