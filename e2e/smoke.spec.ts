@@ -692,3 +692,64 @@ test('the map says what the dots are, clear of the map and the buttons (#109)', 
   await page.locator('[data-iso-dot]').first().locator('.map-dot__hit').click({ force: true });
   await expect(page.getByRole('button', { name: 'Confirm' })).toBeEnabled();
 });
+
+test('revealing the answer does not move or rescale the map (#112)', async ({ page }) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Map/ }).click();
+  await page.getByRole('button', { name: /Country → location/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+  await expect(page.locator('path.map-country')).toHaveCount(195);
+
+  const snapshot = async () => ({
+    viewBox: await page.locator('svg.world-map__svg').getAttribute('viewBox'),
+    frame: await page.locator('.world-map').boundingBox(),
+    kenya: await page.locator('path[data-iso="ke"]').boundingBox(),
+  });
+
+  // A pick (right or wrong, whichever the question makes it) twice, then giving
+  // up: each reveals different lines under the map, and none may move it.
+  for (const how of ['pick', 'pick', 'give up'] as const) {
+    if (how === 'pick') {
+      await page.locator('path[data-iso="ke"]').click({ force: true });
+    }
+    // Zoom in, so a re-fit would show.
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    const before = await snapshot();
+
+    if (how === 'pick') {
+      await page.getByRole('button', { name: 'Confirm' }).click();
+    } else {
+      await page.getByRole('button', { name: /I don.t know/ }).click();
+    }
+    const next = page.getByRole('button', { name: /^(Next|See results)$/ });
+    await expect(next).toBeVisible();
+    await page.waitForTimeout(400);
+    const after = await snapshot();
+
+    // Nothing moves or rescales: the view starts at the same map point and has the
+    // same width (so the same scale). A reveal with a feedback line may take a few
+    // pixels off the frame's bottom edge, never more room than it had.
+    const [bx, by, bw, bh] = (before.viewBox ?? '').split(' ').map(Number) as number[];
+    const [ax, ay, aw, ah] = (after.viewBox ?? '').split(' ').map(Number) as number[];
+    expect(ax, `${how}: view x`).toBeCloseTo(bx as number, 6);
+    expect(ay, `${how}: view y`).toBeCloseTo(by as number, 6);
+    expect(aw, `${how}: view width`).toBeCloseTo(bw as number, 6);
+    expect(ah as number, `${how}: view height`).toBeLessThanOrEqual((bh as number) + 1e-6);
+    expect(after.frame?.y, `${how}: frame top`).toBe(before.frame?.y);
+    expect(after.frame?.width, `${how}: frame width`).toBe(before.frame?.width);
+    expect(after.frame?.height ?? 0, `${how}: frame height`).toBeLessThanOrEqual(
+      (before.frame?.height ?? 0) + 0.5,
+    );
+    // The highlight is a thicker outline, so the box may grow by a pixel; its
+    // centre is where the country is, and that must not move.
+    const centre = (box: { x: number; y: number; width: number; height: number } | null) => ({
+      x: (box?.x ?? 0) + (box?.width ?? 0) / 2,
+      y: (box?.y ?? 0) + (box?.height ?? 0) / 2,
+    });
+    expect(centre(after.kenya).x, `${how}: Kenya x`).toBeCloseTo(centre(before.kenya).x, 0);
+    expect(centre(after.kenya).y, `${how}: Kenya y`).toBeCloseTo(centre(before.kenya).y, 0);
+    await expect(next).toBeInViewport();
+    await next.click();
+  }
+});

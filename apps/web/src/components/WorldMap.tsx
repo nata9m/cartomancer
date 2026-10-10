@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { IconMinus, IconPlus, IconWorld } from './icons';
 import {
   initialCamera,
+  keepView,
   MAX_ZOOM,
   panBy,
   scaleOf,
@@ -97,6 +98,16 @@ export function WorldMap({
   useEffect(() => {
     latest.current = camera && box ? { camera, box } : null;
   }, [camera, box]);
+  // While an answer is on show the frame can settle a few pixels (the strip under
+  // the map holds a note or two); the map then keeps its place instead of re-fitting.
+  const holdView = useRef(false);
+  const mapData = useRef<WorldMapData | null>(null);
+  // A layout effect, because the resize that follows a reveal is reported before
+  // the browser paints, which is before a passive effect would have run.
+  useLayoutEffect(() => {
+    holdView.current = reveal !== null;
+    mapData.current = data;
+  }, [reveal, data]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,6 +131,16 @@ export function WorldMap({
     const frame = frameRef.current;
     if (!frame) return;
     const measure = (width: number, height: number): void => {
+      const now = latest.current;
+      const map = mapData.current;
+      if (
+        holdView.current &&
+        now &&
+        map &&
+        (now.box.width !== width || now.box.height !== height)
+      ) {
+        setCamera(keepView(now.camera, map, now.box, { width, height }));
+      }
       setBox((previous) =>
         previous && previous.width === width && previous.height === height
           ? previous
