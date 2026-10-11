@@ -753,3 +753,40 @@ test('revealing the answer does not move or rescale the map (#112)', async ({ pa
     await next.click();
   }
 });
+
+test('the map zooms in far enough to tap the smallest countries on a phone (#113)', async ({
+  page,
+}) => {
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Map/ }).click();
+  await page.getByRole('button', { name: /Country → location/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+  await expect(page.locator('path.map-country')).toHaveCount(195);
+
+  const sizeOf = async (iso: string) => {
+    const box = await page.locator(`path[data-iso="${iso}"]`).boundingBox();
+    return { width: box?.width ?? 0, height: box?.height ?? 0 };
+  };
+  // Before: the Balkans are a few pixels across on a phone.
+  expect((await sizeOf('me')).width).toBeLessThan(15);
+
+  // Wheel in about Albania until the + button gives out.
+  const albania = await page.locator('path[data-iso="al"]').boundingBox();
+  await page.mouse.move(
+    (albania?.x ?? 0) + (albania?.width ?? 0) / 2,
+    (albania?.y ?? 0) + (albania?.height ?? 0) / 2,
+  );
+  for (let notch = 0; notch < 40; notch += 1) await page.mouse.wheel(0, -100);
+  await expect(page.getByRole('button', { name: 'Zoom in' })).toBeDisabled();
+
+  // Small, crowded countries are now a fingertip or more in both directions.
+  for (const iso of ['me', 'mk', 'rw', 'dj']) {
+    const { width, height } = await sizeOf(iso);
+    expect(Math.min(width, height), iso).toBeGreaterThan(44);
+  }
+
+  // And the whole world is still one tap away.
+  await page.getByRole('button', { name: 'Show the whole world' }).click();
+  await expect(page.getByRole('button', { name: 'Zoom out' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Zoom in' })).toBeEnabled();
+});
