@@ -7,8 +7,6 @@ import {
   type CountryProgress,
   type ProgressSummary,
   type QuizCategory,
-  type ReviewByQuizType,
-  quizTypeByKey,
 } from '@cartomancer/shared';
 import type { PrismaClient } from '@cartomancer/db';
 import type { Db } from './db.js';
@@ -245,86 +243,6 @@ export async function loadSummary(
     },
     totalCountries: TOTAL_COUNTRIES,
   };
-}
-
-/** The most countries one review round asks about, the same as a normal round (#51). */
-export const REVIEW_ROUND_SIZE = 20;
-
-/**
- * What needs another go, by quiz type (#51, #108): countries asked at least once
- * whose last answer left the streak at zero. A country never asked has no row and
- * does not appear: "review" is for what was seen and missed, not what has not
- * been met yet.
- *
- * Progress is per quiz type and a round is of one quiz type, so each type has its
- * own entry and review is shown inside the game it belongs to, not as one global
- * list that picks a game for the player. Only types with something to review
- * appear, so a player with no misses gets `{}`. Recall is left out: its rows are a
- * different kind of thing and have no question to ask again.
- *
- * Fun facts rotate over clues, not countries, and a review round must re-ask the
- * clue that was missed. The last answer to a country in a Fun facts quiz type is
- * the miss that put it here, so its question's `fact_id` is that clue.
- */
-export async function loadReview(prisma: PrismaClient, userId: string): Promise<ReviewByQuizType> {
-  const rows = await prisma.$queryRawUnsafe<
-    { key: string; category: string; quiz_type_id: number; country_id: number }[]
-  >(
-    `SELECT q.key, q.category, q.id AS quiz_type_id, p.country_id
-       FROM progress p
-       JOIN quiz_types q ON q.id = p.quiz_type_id
-      WHERE p.user_id = $1::uuid
-        AND p.current_streak = 0
-        AND p.last_answered_at IS NOT NULL
-        AND q.is_active
-        AND q.format <> 'recall'
-      ORDER BY p.last_answered_at DESC`,
-    userId,
-  );
-
-  const grouped = new Map<string, { category: string; quizTypeId: number; ids: number[] }>();
-  for (const row of rows) {
-    if (!quizTypeByKey(row.key)) continue;
-    const entry = grouped.get(row.key);
-    if (entry) {
-      entry.ids.push(row.country_id);
-    } else {
-      grouped.set(row.key, {
-        category: row.category,
-        quizTypeId: Number(row.quiz_type_id),
-        ids: [row.country_id],
-      });
-    }
-  }
-
-  const review: ReviewByQuizType = {};
-  for (const [key, group] of grouped) {
-    const countryIds = group.ids.slice(0, REVIEW_ROUND_SIZE);
-    review[key] = { count: group.ids.length, countryIds };
-    if (group.category === 'trivia') {
-      const clues = await prisma.$queryRawUnsafe<{ country_id: number; fact_id: number }[]>(
-        `SELECT DISTINCT ON (sa.country_id) sa.country_id, sq.fact_id
-           FROM session_answers sa
-           JOIN quiz_sessions s ON s.id = sa.session_id
-           JOIN session_questions sq
-             ON sq.session_id = sa.session_id AND sq.country_id = sa.country_id
-          WHERE sa.user_id = $1::uuid
-            AND s.quiz_type_id = $2::int
-            AND sa.country_id = ANY($3::int[])
-            AND sq.fact_id IS NOT NULL
-          ORDER BY sa.country_id, sa.answered_at DESC`,
-        userId,
-        group.quizTypeId,
-        countryIds,
-      );
-      const factIds: Record<string, number> = {};
-      for (const clue of clues) {
-        factIds[String(clue.country_id)] = Number(clue.fact_id);
-      }
-      review[key].factIds = factIds;
-    }
-  }
-  return review;
 }
 
 /**

@@ -16,9 +16,6 @@ export function countryRotation(quizTypeKey: string): { seenCountries?: Record<s
   return Object.keys(seenCountries).length > 0 ? { seenCountries } : {};
 }
 
-/** The pending key of a quiz type's review card, apart from its normal start card. */
-export const reviewKeyFor = (quizTypeKey: string): string => `${quizTypeKey}:review`;
-
 export const pendingKeyFor = (quizTypeKey: string, questionCount?: number): string =>
   `${quizTypeKey}:${questionCount ?? 'default'}`;
 
@@ -82,36 +79,6 @@ export function useSessionStarter(filters: Filters) {
     }
   }
 
-  /**
-   * A round over exactly the countries (or, for Fun facts, the clues) that need
-   * review in this quiz type (#51, #108). The filters play no part, so the same
-   * `Filters` every other starter takes is not read.
-   */
-  async function startReview(
-    quizTypeKey: string,
-    entry: { countryIds: number[]; factIds?: Record<string, number> },
-  ): Promise<void> {
-    setPendingKey(reviewKeyFor(quizTypeKey));
-    setError(null);
-    try {
-      // Fun facts re-asks the clue that was missed, not another for the country.
-      const clues = entry.factIds ? Object.values(entry.factIds) : [];
-      const session = await startQuizSession(
-        clues.length > 0
-          ? { quizTypeKey, factIds: clues }
-          : { quizTypeKey, countryIds: entry.countryIds },
-      );
-      if (session.isGuest) {
-        saveGuestQuiz({ session, answers: [] });
-      }
-      preloadQuestionFlags(session.questions[0]);
-      router.push(`/quiz/${session.id}`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not start that round');
-      setPendingKey(null);
-    }
-  }
-
   async function startRecall(regionOverride?: string): Promise<void> {
     setPendingKey(pendingKeyFor('countries-recall'));
     setError(null);
@@ -127,5 +94,5 @@ export function useSessionStarter(filters: Filters) {
     }
   }
 
-  return { startQuiz, startReview, startRecall, pendingKey, error };
+  return { startQuiz, startRecall, pendingKey, error };
 }
