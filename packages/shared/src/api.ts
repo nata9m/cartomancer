@@ -239,27 +239,6 @@ export interface ProgressSummary {
 }
 
 /**
- * What a review round for one quiz type would be (#51, #108): the countries the
- * player answered at least once and whose last answer was a miss, in that quiz
- * type. Review belongs to a game, not to the home screen, so this is per quiz
- * type and only the types that have something appear.
- */
-export interface ReviewEntry {
-  /** How many need review in this quiz type, which can exceed `countryIds`. */
-  count: number;
-  /** Up to a round's worth, most recently missed first. */
-  countryIds: number[];
-  /**
-   * Fun facts only: country id (as a string key) → the clue that was missed, so a
-   * review round re-asks that clue rather than a random other one for the country.
-   */
-  factIds?: Record<string, number>;
-}
-
-/** `GET /api/review`: review entries by quiz type key. Empty for a guest. */
-export type ReviewByQuizType = Record<string, ReviewEntry>;
-
-/**
  * One country's state within a category, from `GET /api/progress/:category`.
  *
  * Only countries the user has answered at least once appear: a country with no

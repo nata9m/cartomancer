@@ -1,6 +1,5 @@
 import { ModePicker } from '@/components/ModePicker';
 import { readFilters } from '@/lib/filters';
-import { loadReviewEntries } from '@/lib/review-server';
 
 export default async function MapPage({
   searchParams,
@@ -8,13 +7,11 @@ export default async function MapPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const filters = readFilters(await searchParams);
-  const review = await loadReviewEntries();
 
   return (
     <ModePicker
       title="Map"
       filters={filters}
-      review={review}
       groups={[
         {
           label: 'Find it on the map',

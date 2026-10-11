@@ -1,13 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { Fragment } from 'react';
 import { ActionCard } from './ActionCard';
 import { FilterChips } from './FilterChips';
-import { IconArrowLeft, IconRefresh } from './icons';
-import type { ReviewByQuizType } from '@cartomancer/shared';
+import { IconArrowLeft } from './icons';
 import type { Filters } from '@/lib/filters';
-import { pendingKeyFor, reviewKeyFor, useSessionStarter } from '@/lib/use-start';
+import { pendingKeyFor, useSessionStarter } from '@/lib/use-start';
 
 export interface ModeGroup {
   label: string;
@@ -31,8 +29,6 @@ export function ModePicker({
   showDifficulty = true,
   showQuestionCount = false,
   seenFactsForStart,
-  review = {},
-  reviewNoun = 'countries',
 }: {
   title: string;
   groups: ModeGroup[];
@@ -46,16 +42,8 @@ export function ModePicker({
    * player's rotation is the api's job (fact_progress).
    */
   seenFactsForStart?: () => Record<string, number>;
-  /**
-   * What the player has missed, by quiz type (#108). A mode with something to
-   * review gets a Review card directly under it, so it is seen when choosing what
-   * to play and belongs, unmistakably, to the game it sits in.
-   */
-  review?: ReviewByQuizType;
-  /** What a review round re-asks: countries, or clues for Fun facts. */
-  reviewNoun?: 'countries' | 'clues';
 }) {
-  const { startQuiz, startReview, pendingKey, error } = useSessionStarter(filters);
+  const { startQuiz, pendingKey, error } = useSessionStarter(filters);
 
   // The count chip feeds every card on the screen, so it is resolved here
   // rather than written into each mode. A mode that names its own count (the
@@ -85,33 +73,17 @@ export function ModePicker({
       {groups.map((group) => (
         <div className="stack" key={group.label}>
           <p className="group-label">{group.label}</p>
-          {group.modes.map((mode) => {
-            const missed = review[mode.quizTypeKey];
-            return (
-              <Fragment key={`${mode.quizTypeKey}-${mode.questionCount ?? 'default'}`}>
-                <ActionCard
-                  title={mode.title}
-                  description={mode.description}
-                  pending={
-                    pendingKey ===
-                    pendingKeyFor(mode.quizTypeKey, mode.questionCount ?? chosenCount)
-                  }
-                  onClick={() => void start(mode)}
-                />
-                {missed && missed.count > 0 ? (
-                  <ActionCard
-                    icon={<IconRefresh size={19} stroke={1.75} />}
-                    title={
-                      reviewNoun === 'clues' ? 'Review missed clues' : `Review · ${mode.title}`
-                    }
-                    description={`${missed.count} to review · ${reviewNoun} you got wrong last time`}
-                    pending={pendingKey === reviewKeyFor(mode.quizTypeKey)}
-                    onClick={() => void startReview(mode.quizTypeKey, missed)}
-                  />
-                ) : null}
-              </Fragment>
-            );
-          })}
+          {group.modes.map((mode) => (
+            <ActionCard
+              key={`${mode.quizTypeKey}-${mode.questionCount ?? 'default'}`}
+              title={mode.title}
+              description={mode.description}
+              pending={
+                pendingKey === pendingKeyFor(mode.quizTypeKey, mode.questionCount ?? chosenCount)
+              }
+              onClick={() => void start(mode)}
+            />
+          ))}
         </div>
       ))}
 

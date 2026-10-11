@@ -1,6 +1,5 @@
 import { TriviaModePicker } from '@/components/TriviaModePicker';
 import { readFilters } from '@/lib/filters';
-import { loadReviewEntries } from '@/lib/review-server';
 
 export default async function TriviaPage({
   searchParams,
@@ -9,7 +8,5 @@ export default async function TriviaPage({
 }) {
   const filters = readFilters(await searchParams);
 
-  const review = await loadReviewEntries();
-
-  return <TriviaModePicker filters={filters} review={review} />;
+  return <TriviaModePicker filters={filters} />;
 }
