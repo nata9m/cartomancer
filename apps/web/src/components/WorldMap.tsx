@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { IconMinus, IconPlus, IconWorld } from './icons';
 import {
+  copiesIn,
   initialCamera,
   keepView,
   maxZoomFor,
@@ -46,6 +47,81 @@ function toMapPoint(
 }
 
 /**
+ * One copy of the world (#114): the land, every country, and the dots for the
+ * tiny ones, shifted sideways by whole map widths. The map repeats, so several of
+ * these can be on screen at once, and a country's selected / correct / wrong
+ * state is by its code, not by which copy was tapped: every copy shows it.
+ *
+ * Memoised, because dragging re-renders the map for every frame and none of this
+ * changes while the camera moves.
+ */
+const MapLayer = memo(function MapLayer({
+  data,
+  offset,
+  selectedIso,
+  reveal,
+  scale,
+  onSelect,
+}: {
+  data: WorldMapData;
+  /** How many whole map widths this copy is shifted by. */
+  offset: number;
+  selectedIso: string | null;
+  reveal: MapReveal | null;
+  scale: number;
+  onSelect: (iso: string) => void;
+}) {
+  const stateOf = (iso: string): string => {
+    if (reveal) {
+      if (iso === reveal.correctIso) return ' map-country--correct';
+      if (iso === reveal.chosenIso) return ' map-country--wrong';
+      return '';
+    }
+    return iso === selectedIso ? ' map-country--selected' : '';
+  };
+  return (
+    <g transform={offset === 0 ? undefined : `translate(${offset * data.width} 0)`}>
+      <path className="map-land" d={data.otherLand} />
+      {data.countries.map((country) => (
+        <path
+          key={country.iso}
+          data-iso={country.iso}
+          className={`map-country${stateOf(country.iso)}`}
+          d={country.d}
+          onClick={() => onSelect(country.iso)}
+        />
+      ))}
+      {data.countries
+        .filter((country) => country.tiny)
+        .map((country) => (
+          <g
+            key={country.iso}
+            data-iso-dot={country.iso}
+            className={`map-dot${stateOf(country.iso)}`}
+            onClick={() => onSelect(country.iso)}
+          >
+            {/* Sized in screen pixels, not map units, so they feel the same on
+                a phone and a desktop and at every zoom: a visible dot a few
+                pixels across inside a target about a fingertip wide. */}
+            <circle
+              className="map-dot__hit"
+              cx={country.cx}
+              cy={country.cy}
+              r={DOT_HIT_PX / scale}
+            />
+            <circle
+              className="map-dot__mark"
+              cx={country.cx}
+              cy={country.cy}
+              r={DOT_MARK_PX / scale}
+            />
+          </g>
+        ))}
+    </g>
+  );
+});
+
+/**
  * The map a map-mode question is answered on (#52): countries as SVG paths, tap
  * one to select it, drag to pan, pinch / wheel / the buttons to zoom.
  *
@@ -53,7 +129,7 @@ function toMapPoint(
  * first needs it, rather than shipped with every screen. Until it arrives the
  * frame is reserved at its final size, so nothing jumps.
  *
- * Countries too small to hit (37 of them) also get a dot, with a hit area sized
+ * Countries too small to hit (38 of them) also get a dot, with a hit area sized
  * for a fingertip at the current zoom: Monaco is a fraction of a pixel at world
  * scale, and the answer to "find Monaco" cannot be "zoom until it exists".
  *
@@ -266,6 +342,13 @@ export function WorldMap({
     if (disabled || dragged.current) return;
     onSelect(iso);
   }
+  // The layers are memoised, so they get a function that never changes and that
+  // calls whichever `select` is current.
+  const selectRef = useRef(select);
+  useLayoutEffect(() => {
+    selectRef.current = select;
+  });
+  const selectStable = useCallback((iso: string) => selectRef.current(iso), []);
 
   function zoomBy(factor: number): void {
     const now = latest.current;
@@ -279,15 +362,6 @@ export function WorldMap({
   const zoom = ready ? camera.k : 1;
   const view = ready ? viewOf(camera, data, box) : null;
   const scale = ready ? scaleOf(camera, data, box) : 1;
-  const stateOf = (iso: string): string => {
-    if (reveal) {
-      if (iso === reveal.correctIso) return ' map-country--correct';
-      if (iso === reveal.chosenIso) return ' map-country--wrong';
-      return '';
-    }
-    return iso === selectedIso ? ' map-country--selected' : '';
-  };
-
   return (
     <div className="world-map" ref={frameRef}>
       {failed ? (
@@ -311,42 +385,17 @@ export function WorldMap({
             onPointerUp={onPointerEnd}
             onPointerCancel={onPointerEnd}
           >
-            <path className="map-land" d={data.otherLand} />
-            {data.countries.map((country) => (
-              <path
-                key={country.iso}
-                data-iso={country.iso}
-                className={`map-country${stateOf(country.iso)}`}
-                d={country.d}
-                onClick={() => select(country.iso)}
+            {copiesIn(view, data).map((offset) => (
+              <MapLayer
+                key={offset}
+                data={data}
+                offset={offset}
+                selectedIso={selectedIso}
+                reveal={reveal}
+                scale={scale}
+                onSelect={selectStable}
               />
             ))}
-            {data.countries
-              .filter((country) => country.tiny)
-              .map((country) => (
-                <g
-                  key={country.iso}
-                  data-iso-dot={country.iso}
-                  className={`map-dot${stateOf(country.iso)}`}
-                  onClick={() => select(country.iso)}
-                >
-                  {/* Sized in screen pixels, not map units, so they feel the same on
-                      a phone and a desktop and at every zoom: a visible dot a few
-                      pixels across inside a target about a fingertip wide. */}
-                  <circle
-                    className="map-dot__hit"
-                    cx={country.cx}
-                    cy={country.cy}
-                    r={DOT_HIT_PX / scale}
-                  />
-                  <circle
-                    className="map-dot__mark"
-                    cx={country.cx}
-                    cy={country.cy}
-                    r={DOT_MARK_PX / scale}
-                  />
-                </g>
-              ))}
           </svg>
           <div className="map-controls">
             <button

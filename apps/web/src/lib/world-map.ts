@@ -92,9 +92,16 @@ export function coverScale(map: Pick<WorldMapData, 'width' | 'height'>, box: Box
 }
 
 /**
- * Keeps a camera on the map: zoom within bounds, and the view never off the edge.
- * When the world is narrower (or shorter) than the frame, it is centred in it
- * rather than pinned to a side, so the bare sea is split evenly.
+ * Keeps a camera valid: zoom within bounds, the view never past the top or bottom
+ * of the map, and the centre brought back into the one copy of the world that
+ * the camera is stored in (#114).
+ *
+ * The map is a 360 degree strip that repeats sideways, so there is no left or
+ * right edge to stop at: `cx` is taken modulo the width, which changes nothing
+ * the player can see (the copies are identical) and keeps the numbers small
+ * however far they have dragged. Vertically the poles are real edges. When the
+ * world is shorter than the frame, it is centred in it rather than pinned to the
+ * top, so the bare sea is split evenly.
  */
 export function clampCamera(
   camera: Camera,
@@ -103,11 +110,22 @@ export function clampCamera(
 ): Camera {
   const k = Math.min(maxZoomFor(map, box), Math.max(1, camera.k));
   const scale = containScale(map, box) * k;
-  const w = box.width / scale;
   const h = box.height / scale;
-  const centre = (value: number, span: number, limit: number): number =>
-    span >= limit ? limit / 2 : Math.min(limit - span / 2, Math.max(span / 2, value));
-  return { k, cx: centre(camera.cx, w, map.width), cy: centre(camera.cy, h, map.height) };
+  const centreY = (value: number): number =>
+    h >= map.height ? map.height / 2 : Math.min(map.height - h / 2, Math.max(h / 2, value));
+  const wrapX = ((camera.cx % map.width) + map.width) % map.width;
+  return { k, cx: wrapX, cy: centreY(camera.cy) };
+}
+
+/**
+ * Which copies of the world a view touches, as offsets in whole widths: 0 is the
+ * original, -1 the copy to its left, 1 the one to its right (#114). Usually one or
+ * two; a window wider than the world shows more. Only these are worth drawing.
+ */
+export function copiesIn(view: View, map: Pick<WorldMapData, 'width'>): number[] {
+  const first = Math.floor(view.x / map.width);
+  const last = Math.max(first, Math.ceil((view.x + view.w) / map.width) - 1);
+  return Array.from({ length: last - first + 1 }, (_, index) => first + index);
 }
 
 /** The `viewBox` rectangle a camera looks through, for a frame of this size. */
@@ -158,8 +176,20 @@ export function keepView(
 }
 
 /**
+ * How much of the map's height the opening view shows at most. The map runs from
+ * 84 degrees north to 58 south so that nothing is cut off when panning, but every
+ * country is between about 55 south and 72 north, and fitting all of it in a
+ * phone's height would make a country around a fifth smaller than the same
+ * screen showed before the map was a Mercator strip (#114).
+ */
+export const OPENING_HEIGHT_SHARE = 0.78;
+
+/** Where the opening view is centred vertically, as a share of the height (a little north of the equator). */
+const OPENING_CENTRE_Y = 0.6;
+
+/**
  * Where a question starts: the map filling the frame, centred on a neutral spot
- * (Europe and Africa, the middle of the Natural Earth map) so that the opening
+ * (Europe and Africa, a little east of the middle of the map) so that the opening
  * view says nothing about where the answer is.
  *
  * Filling the frame, not fitting the world in it, is the point of #91: on a phone
@@ -172,9 +202,10 @@ export function initialCamera(map: Pick<WorldMapData, 'width' | 'height'>, box: 
   // the shape of the map, and far above 1 for a tall one. A frame within 15% of
   // the map's shape shows the whole world rather than shaving its edges off for a
   // sliver of extra size.
-  const fill = coverScale(map, box) / containScale(map, box);
+  const opening = Math.max(box.width / map.width, box.height / (map.height * OPENING_HEIGHT_SHARE));
+  const fill = opening / containScale(map, box);
   return clampCamera(
-    { cx: map.width * 0.52, cy: map.height / 2, k: fill <= 1.15 ? 1 : fill },
+    { cx: map.width * 0.52, cy: map.height * OPENING_CENTRE_Y, k: fill <= 1.15 ? 1 : fill },
     map,
     box,
   );

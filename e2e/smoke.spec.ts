@@ -631,7 +631,7 @@ test('the map fills the screen, re-fits on rotation and keeps the selection (#91
   expect(kenya?.height ?? 0).toBeGreaterThan(28);
 
   // Select something, then turn the phone: the map re-fits, the selection stays.
-  await page.locator('path[data-iso="ke"]').dispatchEvent('click');
+  await page.locator('path[data-iso="ke"]').first().dispatchEvent('click');
   await expect(page.locator('path.map-country--selected')).toHaveAttribute('data-iso', 'ke');
   const before = await page.locator('.world-map__svg').getAttribute('viewBox');
   await page.setViewportSize({ width: screen.h, height: screen.w });
@@ -642,11 +642,19 @@ test('the map fills the screen, re-fits on rotation and keeps the selection (#91
   box = await sizeOf();
   expect(box.width).toBeCloseTo(screen.w, 0);
   expect(box.height).toBeGreaterThan(screen.h * 0.4);
-  await expect(page.locator('path.map-country--selected')).toHaveAttribute('data-iso', 'ke');
-  const [vx, vy, vw, vh] = ((await page.locator('.world-map__svg').getAttribute('viewBox')) ?? '')
+  // A landscape phone is wider than the world, so the map repeats (#114): the
+  // selection shows on every copy of Kenya that is on screen.
+  const selected = page.locator('path.map-country--selected');
+  await expect(selected.first()).toHaveAttribute('data-iso', 'ke');
+  expect(await selected.count()).toBeGreaterThanOrEqual(2);
+  for (const iso of await selected.evaluateAll((paths) =>
+    paths.map((path) => path.getAttribute('data-iso')),
+  )) {
+    expect(iso).toBe('ke');
+  }
+  const [, vy, vw, vh] = ((await page.locator('.world-map__svg').getAttribute('viewBox')) ?? '')
     .split(' ')
     .map(Number) as [number, number, number, number];
-  expect(vx).toBeGreaterThanOrEqual(-1);
   expect(vw / vh).toBeCloseTo(box.width / box.height, 1);
   expect(vy).not.toBeNaN();
 
@@ -789,4 +797,80 @@ test('the map zooms in far enough to tap the smallest countries on a phone (#113
   await page.getByRole('button', { name: 'Show the whole world' }).click();
   await expect(page.getByRole('button', { name: 'Zoom out' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Zoom in' })).toBeEnabled();
+});
+
+test('the map goes round: dragging never stops, and any copy can be tapped (#114)', async ({
+  page,
+}) => {
+  // Wider than the world, so more than one copy is on screen.
+  await page.setViewportSize({ width: 1600, height: 800 });
+  await continueAsGuest(page);
+  await page.getByRole('link', { name: /^Map/ }).click();
+  await page.getByRole('button', { name: /Country → location/ }).click();
+  await page.waitForURL(/\/quiz\/guest-/);
+  await expect(page.locator('path.map-country').first()).toBeVisible();
+
+  const viewBox = async () =>
+    ((await page.locator('.world-map__svg').getAttribute('viewBox')) ?? '')
+      .split(' ')
+      .map(Number) as [number, number, number, number];
+  const layers = page.locator('.world-map__svg > g');
+  expect(await layers.count()).toBeGreaterThanOrEqual(2);
+
+  const [startX, startY, width] = await viewBox();
+  // The map is 1000 units wide, drawn at width / viewBox-width pixels per unit.
+  const pixelsPerUnit = 1600 / width;
+  const lap = Math.round(1000 * pixelsPerUnit);
+
+  // Drag east-to-west all the way round: no stop, no blank margin.
+  const seen: number[] = [];
+  await page.mouse.move(100, 400);
+  await page.mouse.down();
+  for (let step = 1; step <= 20; step += 1) {
+    await page.mouse.move(100 + (lap / 20) * step, 400);
+    seen.push((await viewBox())[0]);
+  }
+  await page.mouse.up();
+  // It moved the whole way (every step went somewhere) ...
+  for (let i = 1; i < seen.length; i += 1) {
+    expect(seen[i]).not.toBeCloseTo(seen[i - 1] as number, 3);
+  }
+  // ... and a full lap is the view it started with.
+  const [afterX, afterY] = await viewBox();
+  expect(((afterX - startX) % 1000) + 0).toBeCloseTo(0, 0);
+  expect(afterY).toBeCloseTo(startY, 3);
+  // The camera is kept in one copy, however far it has gone.
+  expect(Math.abs(afterX)).toBeLessThan(2000);
+
+  // Tap a country on the second copy: both show it as selected, and it can be confirmed.
+  const kenya = page.locator('path[data-iso="ke"]');
+  const copies = await kenya.count();
+  expect(copies).toBeGreaterThanOrEqual(2);
+  await kenya.nth(copies - 1).dispatchEvent('click');
+  await expect(page.locator('path.map-country--selected')).toHaveCount(copies);
+  await expect(page.getByRole('button', { name: 'Confirm' })).toBeEnabled();
+
+  // The small-country dots are drawn in every copy too.
+  const dots = await page.locator('[data-iso-dot="mc"]').count();
+  expect(dots).toBe(copies);
+
+  // Up and down are still stopped at the poles.
+  // Several strokes that stay inside the window: a pointer outside it sends nothing.
+  const drag = async (direction: 1 | -1) => {
+    for (let stroke = 0; stroke < 8; stroke += 1) {
+      const from = direction > 0 ? 250 : 600;
+      await page.mouse.move(800, from);
+      await page.mouse.down();
+      await page.mouse.move(800, from + direction * 300, { steps: 6 });
+      await page.mouse.up();
+    }
+    return viewBox();
+  };
+  const north = await drag(1);
+  expect(north[1]).toBeCloseTo(0, 3);
+  const south = await drag(-1);
+  const southAgain = await drag(-1);
+  expect(southAgain[1] + southAgain[3]).toBeCloseTo(south[1] + south[3], 3);
+  // The south end is the bottom of the map, not infinitely far.
+  expect(south[1] + south[3]).toBeLessThan(700);
 });
